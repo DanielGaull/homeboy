@@ -42,8 +42,8 @@ impl TemplateParser {
         let internal_pair = pair.into_inner().next().unwrap();
         match internal_pair.as_rule() {
             Rule::word => symbol_internal = SymbolInternal::Word(String::from(internal_pair.as_str())),
-            Rule::varBind => symbol_internal = SymbolInternal::VarBind(String::from(internal_pair.as_str())),
-            Rule::subtemplateCall => symbol_internal = SymbolInternal::SubtemplateCall(String::from(internal_pair.as_str())),
+            Rule::varBind => symbol_internal = SymbolInternal::VarBind(String::from(internal_pair.into_inner().next().unwrap().as_str())),
+            Rule::subtemplateCall => symbol_internal = SymbolInternal::SubtemplateCall(String::from(internal_pair.into_inner().next().unwrap().as_str())),
             Rule::template => symbol_internal = SymbolInternal::Template(Box::new(Self::parse_template_pair(internal_pair)?)),
             _ => return Err(ParseError::FailSymbol(String::from(pair_str))),
         }
