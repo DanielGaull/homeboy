@@ -2,7 +2,7 @@ use pest::{iterators::Pair, Parser};
 use pest_derive::Parser;
 use thiserror::Error;
 
-use super::template::{Symbol, SymbolInternal, Template};
+use super::template::{Clause, Symbol, SymbolInternal, Template};
 
 #[derive(Parser)]
 #[grammar = "templating/grammar.pest"] // relative to src
@@ -28,12 +28,26 @@ impl TemplateParser {
     }
 
     fn parse_template_pair(pair: Pair<Rule>) -> Result<Template, ParseError> {
-        let mut symbols = Vec::new();
+        let mut clauses = Vec::new();
         let pairs = pair.into_inner();
         for p in pairs {
+            if !matches!(p.as_rule(), Rule::EOI) {
+                clauses.push(Self::parse_clause(p)?);
+            }
+        }
+        Ok(Template { clauses: clauses })
+    }
+
+    fn parse_clause(pair: Pair<Rule>) -> Result<Clause, ParseError> {
+        let mut symbols = Vec::new();
+        for p in pair.into_inner() {
             symbols.push(Self::parse_symbol(p)?);
         }
-        Ok(Template { symbols: symbols })
+        Ok(
+            Clause {
+                symbols: symbols,
+            }
+        )
     }
 
     fn parse_symbol(pair: Pair<Rule>) -> Result<Symbol, ParseError> {

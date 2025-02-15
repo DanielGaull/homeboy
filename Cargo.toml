@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 cortex-lang = "0.1.1-alpha"
+dotenv = "0.15.0"
 pest = "2.7.15"
 pest_derive = "2.7.15"
 thiserror = "2.0.11"

@@ -1,12 +1,13 @@
 COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }
 WHITESPACE = _{ " " | "\n" | "\t" | "\r" }
 
-template = { symbol ~ ("|" ~ symbol)* }
-symbol = { (word | subtemplateCall | varBind | "(" ~ template ~ ")") ~ "?" }
+template = { SOI ~ clause ~ ("|" ~ clause)* ~ EOI }
+clause = { symbol* }
+symbol = { (word | subtemplateCall | varBind | "(" ~ template ~ ")") ~ "?"? }
 
 subtemplateCall = { "{" ~ subtemplateIdent ~ "}" }
 varBind = { "[" ~ ident ~ "]" }
 word = { ASCII_ALPHANUMERIC+ }
 
-subtemplateIdent = { ANY+ }
+subtemplateIdent = { (ASCII_ALPHANUMERIC | " ")+ }
 ident = { ASCII_ALPHANUMERIC+ }
