@@ -1,0 +1,12 @@
+
+% temp
+{ask}? play [song] (on spotify)?
+fn ~(song: string): void {
+    println(song);
+}
+% end
+
+% sub
+ask
+((can|would|could) you)? please
+% end
