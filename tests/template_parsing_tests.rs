@@ -20,7 +20,9 @@ fn template_parsing_tests() -> Result<(), Box<dyn Error>> {
     ]))?;
 
     run_test("foo bar baz", Template::single(Clause::new(vec![
-        Symbol::new(SymbolInternal::Text(String::from("foo bar baz")), false),
+        Symbol::new(SymbolInternal::Text(String::from("foo")), false),
+        Symbol::new(SymbolInternal::Text(String::from("bar")), false),
+        Symbol::new(SymbolInternal::Text(String::from("baz")), false),
     ])))?;
 
     run_test("(can|would)", Template::single(Clause::new(vec![

@@ -6,14 +6,14 @@ use homeboy::templating::{matcher::{TemplateError, TemplateMatcher}, parser::Tem
 fn regex_generation_tests() -> Result<(), Box<dyn Error>> {
     let matcher = setup_matcher()?;
 
-    assert_regex("foo", "foo", &matcher)?;
-    assert_regex("foo?", "foo?", &matcher)?;
-    assert_regex("(foo)?", "(?:foo)?", &matcher)?;
-    assert_regex("[hello]", "(?<hello>.*)", &matcher)?;
-    assert_regex("{pre command ask}?", r"(?:(?:could|would)\s*you\s*please?)?", &matcher)?;
+    assert_regex("foo", "^foo$", &matcher)?;
+    assert_regex("foo?", "^(?:foo)?$", &matcher)?;
+    assert_regex("(foo)?", "^(?:foo)?$", &matcher)?;
+    assert_regex("[hello]", "^(?<hello>.*)$", &matcher)?;
+    assert_regex("{pre command ask}?", r"^(?:(?:could|would)\s*you\s*(?:please)?)?$", &matcher)?;
     assert_regex(
         "{pre command ask}? play [song] on Spotify", 
-        r"(?:(?:could|would)\s*you\s*please?)?\s*play\s*(?<song>.*)\s*on\s*spotify", 
+        r"^(?:(?:could|would)\s*you\s*(?:please)?)?\s*play\s*(?<song>.*)\s*on\s*spotify$", 
         &matcher
     )?;
 

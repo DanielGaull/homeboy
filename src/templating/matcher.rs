@@ -51,29 +51,45 @@ impl TemplateMatcher {
     }
 
     pub fn convert_template_to_regex(&self, template: &Template) -> Result<String, TemplateError> {
+        let mut s = String::new();
+        s.push_str("^");
+        s.push_str(&self.convert_template_to_regex_internal(template)?);
+        s.push_str("$");
+        Ok(s)
+    }
+    fn convert_template_to_regex_internal(&self, template: &Template) -> Result<String, TemplateError> {
         let joint_clauses: Vec<String> = template.clauses.iter().map(|c| {
             let joint_symbols: Vec<String> = c.symbols.iter().map(|sym| {
+                let mut parens_added = false;
                 let mut s = 
                     match &sym.symbol {
                         SymbolInternal::Text(t) => Ok(t.clone()),
                         SymbolInternal::SubtemplateCall(t) => {
+                            parens_added = true;
                             let subtemplate = self.subtemplate_definitions.get(t);
                             if let Some(subt) = subtemplate {
-                                Ok(format!("(?:{})", self.convert_template_to_regex(subt)?))
+                                Ok(format!("(?:{})", self.convert_template_to_regex_internal(subt)?))
                             } else {
                                 Err(TemplateError::SubtemplateNotFound(t.clone()))
                             }
                         },
                         SymbolInternal::VarBind(name) => {
+                            parens_added = true;
                             Ok(format!("(?<{}>.*)", name.clone()))
                         },
                         SymbolInternal::Template(template) => {
-                            let subtemplate_regex = self.convert_template_to_regex(&template)?;
+                            let subtemplate_regex = self.convert_template_to_regex_internal(&template)?;
+                            parens_added = true;
                             Ok(format!("(?:{})", subtemplate_regex))
                         },
                     }?;
                 if sym.optional {
-                    s.push_str("?");
+                    if parens_added {
+                        s.push_str("?");
+                    } else {
+                        s.insert_str(0, "(?:");
+                        s.push_str(")?");
+                    }
                 }
                 Ok(s)
             }).collect::<Result<Vec<String>, TemplateError>>()?;

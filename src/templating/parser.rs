@@ -43,9 +43,30 @@ impl TemplateParser {
         for p in pair.into_inner() {
             symbols.push(Self::parse_symbol(p)?);
         }
+
+        // Handle splitting text
+        let mut true_symbols = Vec::new();
+        for sym in symbols.into_iter() {
+            let symbol_split = Self::split_words(sym.symbol);
+            let optional = sym.optional;
+            let len = symbol_split.len();
+            let symbols_to_add: Vec<_> = symbol_split
+                .into_iter()
+                .enumerate()
+                .map(|(i, internal)| {
+                    if i == len - 1 {
+                        Symbol::new(internal, optional)
+                    } else {
+                        Symbol::new(internal, false)
+                    }
+                })
+                .collect();
+            true_symbols.extend(symbols_to_add);
+        }
+
         Ok(
             Clause {
-                symbols: symbols,
+                symbols: true_symbols,
             }
         )
     }
@@ -66,5 +87,15 @@ impl TemplateParser {
             symbol: symbol_internal,
             optional: optional,
         })
+    }
+
+    fn split_words(symbol: SymbolInternal) -> Vec<SymbolInternal> {
+        if let SymbolInternal::Text(text) = symbol {
+            let words_str: Vec<&str> = text.split_whitespace().collect();
+            let words: Vec<SymbolInternal> = words_str.into_iter().map(|w| SymbolInternal::Text(String::from(w))).collect();
+            words
+        } else {
+            vec![symbol]
+        }
     }
 }
