@@ -106,6 +106,7 @@ impl CommandRunner {
                 ]
             )
         )?;
+        let sp1 = spotify.clone();
         mod_env.add_function(
             Function::new(
                 OptionalIdentifier::Ident(String::from("search")),
@@ -114,7 +115,7 @@ impl CommandRunner {
                 Body::Native(Box::new(move |env| {
                     let query = env.get_value("query")?;
                     if let CortexValue::String(string) = query {
-                        let result = block_on(spotify.borrow_mut().get_song(string.clone()))?;
+                        let result = block_on(sp1.borrow_mut().get_song(string.clone()))?;
                         if let Some(song) = result {
                             Ok(CortexValue::Composite {
                                 struct_name: PathIdent::new(vec!["Spotify", "Song"]),
@@ -130,6 +131,21 @@ impl CommandRunner {
                     } else {
                         Ok(CortexValue::Null)
                     }
+                }))
+            )
+        )?;
+        let sp2 = spotify.clone();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("play")),
+                vec![Parameter::named("song_id", CortexType::string(false))],
+                CortexType::void(false),
+                Body::Native(Box::new(move |env| {
+                    let song_id = env.get_value("song_id")?;
+                    if let CortexValue::String(string) = song_id {
+                        block_on(sp2.borrow_mut().play_song(string.clone()))?;
+                    }
+                    Ok(CortexValue::Void)
                 }))
             )
         )?;

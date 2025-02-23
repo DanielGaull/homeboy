@@ -1,6 +1,6 @@
 use std::{env, error::Error};
 
-use rspotify::{model::{Country, Id, Market, SearchResult, SearchType}, prelude::{BaseClient, OAuthClient}, scopes, AuthCodeSpotify, Credentials, OAuth};
+use rspotify::{model::{Country, Id, Market, PlayableId, SearchResult, SearchType, TrackId}, prelude::{BaseClient, OAuthClient}, scopes, AuthCodeSpotify, Credentials, OAuth};
 
 pub struct Spotify {
     client: AuthCodeSpotify,
@@ -21,7 +21,6 @@ impl Spotify {
         let mut oauth = OAuth::default();
         oauth.redirect_uri = redirect_url;
         oauth.scopes = scopes!("user-read-playback-state", "user-modify-playback-state", "user-library-read");
-        // let code = env::var(String::from("sp_code"))?;
         let spotify = AuthCodeSpotify::new(creds, oauth);
         let url = spotify.get_authorize_url(false).unwrap();
         spotify.prompt_for_token(&url).await?;
@@ -31,7 +30,7 @@ impl Spotify {
         })
     }
     
-    pub async fn get_song(&mut self, query: String) -> Result<Option<Song>, Box<dyn Error>> {
+    pub async fn get_song(&self, query: String) -> Result<Option<Song>, Box<dyn Error>> {
         let result = self.client.search(
             &query, 
             SearchType::Track, 
@@ -54,5 +53,10 @@ impl Spotify {
             }
         }
         Ok(None)
+    }
+
+    pub async fn play_song(&self, id: String) -> Result<(), Box<dyn Error>> {
+        self.client.start_uris_playback(vec![PlayableId::Track(TrackId::from_id(id).unwrap())], None, None, None).await?;
+        Ok(())
     }
 }
