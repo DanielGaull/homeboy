@@ -1,6 +1,6 @@
 #[derive(PartialEq, Debug)]
 pub enum SymbolInternal {
-    Word(String),
+    Text(String),
     SubtemplateCall(String),
     VarBind(String),
     Template(Box<Template>),

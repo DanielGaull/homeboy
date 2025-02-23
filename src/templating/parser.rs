@@ -20,9 +20,9 @@ pub enum ParseError {
 
 impl TemplateParser {
     pub fn parse_template(input: &str) -> Result<Template, ParseError> {
-        let pair = PestTemplateParser::parse(Rule::template, input);
+        let pair = PestTemplateParser::parse(Rule::topTemplate, input);
         match pair {
-            Ok(mut v) => Self::parse_template_pair(v.next().unwrap()),
+            Ok(mut v) => Self::parse_template_pair(v.next().unwrap().into_inner().next().unwrap()),
             Err(_) => Err(ParseError::FailTemplate(String::from(input))),
         }
     }
@@ -55,7 +55,7 @@ impl TemplateParser {
         let symbol_internal;
         let internal_pair = pair.into_inner().next().unwrap();
         match internal_pair.as_rule() {
-            Rule::word => symbol_internal = SymbolInternal::Word(String::from(internal_pair.as_str())),
+            Rule::text => symbol_internal = SymbolInternal::Text(String::from(internal_pair.as_str())),
             Rule::varBind => symbol_internal = SymbolInternal::VarBind(String::from(internal_pair.into_inner().next().unwrap().as_str())),
             Rule::subtemplateCall => symbol_internal = SymbolInternal::SubtemplateCall(String::from(internal_pair.into_inner().next().unwrap().as_str())),
             Rule::template => symbol_internal = SymbolInternal::Template(Box::new(Self::parse_template_pair(internal_pair)?)),
