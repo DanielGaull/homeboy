@@ -1,7 +1,7 @@
-use std::{cell::RefCell, error::Error, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, error::Error, rc::Rc};
 use futures::executor::block_on;
 
-use cortex_lang::{interpreting::{env::Environment, interpreter::CortexInterpreter, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
+use cortex_lang::{interpreting::{env::Environment, interpreter::CortexInterpreter, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function, Struct}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
 use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
@@ -96,17 +96,34 @@ impl CommandRunner {
     }
     async fn build_spotify_module(spotify: Rc<RefCell<Spotify>>) -> Result<Module, Box<dyn Error>> {
         let mut mod_env = Environment::base();
+        mod_env.add_struct(
+            Struct::new(
+                "Song", 
+                vec![
+                    ("id", CortexType::string(false)),
+                    ("name", CortexType::string(false)),
+                    ("artist", CortexType::string(false)),
+                ]
+            )
+        )?;
         mod_env.add_function(
             Function::new(
                 OptionalIdentifier::Ident(String::from("search")),
                 vec![Parameter::named("query", CortexType::string(false))],
-                CortexType::string(true),
+                CortexType::new(PathIdent::new(vec!["Spotify", "Song"]), true),
                 Body::Native(Box::new(move |env| {
                     let query = env.get_value("query")?;
                     if let CortexValue::String(string) = query {
                         let result = block_on(spotify.borrow_mut().get_song(string.clone()))?;
-                        if let Some(song_id) = result {
-                            Ok(CortexValue::String(song_id))
+                        if let Some(song) = result {
+                            Ok(CortexValue::Composite {
+                                struct_name: PathIdent::new(vec!["Spotify", "Song"]),
+                                field_values: HashMap::from([
+                                    (String::from("id"), CortexValue::String(song.id)),
+                                    (String::from("name"), CortexValue::String(song.name)),
+                                    (String::from("artist"), CortexValue::String(song.artist)),
+                                ]),
+                            })
                         } else {
                             Ok(CortexValue::Null)
                         }

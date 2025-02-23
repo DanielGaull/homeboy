@@ -6,6 +6,12 @@ pub struct Spotify {
     client: AuthCodeSpotify,
 }
 
+pub struct Song {
+    pub id: String,
+    pub name: String,
+    pub artist: String,
+}
+
 impl Spotify {
     pub async fn init() -> Result<Self, Box<dyn Error>> {
         let redirect_url = env::var(String::from("sp_redirect_uri"))?;
@@ -25,7 +31,7 @@ impl Spotify {
         })
     }
     
-    pub async fn get_song(&mut self, query: String) -> Result<Option<String>, Box<dyn Error>> {
+    pub async fn get_song(&mut self, query: String) -> Result<Option<Song>, Box<dyn Error>> {
         let result = self.client.search(
             &query, 
             SearchType::Track, 
@@ -36,9 +42,15 @@ impl Spotify {
         ).await?;
         if let SearchResult::Tracks(page) = result {
             if let Some(track) = page.items.get(0) {
-                if let Some(id) = &track.id {
-                    return Ok(Some(String::from(id.id())));
-                }
+                return Ok(
+                    Some(
+                        Song {
+                            id: String::from(track.id.clone().unwrap().id()),
+                            name: track.name.clone(),
+                            artist: String::new(),
+                        }
+                    )
+                );
             }
         }
         Ok(None)
