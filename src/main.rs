@@ -2,12 +2,15 @@ use dotenv::dotenv;
 use homeboy::runner::runner::CommandRunner;
 use std::{env, error::Error, io::{stdin, stdout, Write}};
 
-fn main() -> Result<(), Box<dyn Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
     let _vars = env::vars();
 
     let mut runner = CommandRunner::new();
+    println!("Initializing...");
     runner.init("./templates.txt")?;
+    println!("Initialized");
     loop {
         print!("Input: ");
         let line = read_line();

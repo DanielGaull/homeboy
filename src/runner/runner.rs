@@ -1,9 +1,12 @@
-use std::error::Error;
+use std::{cell::RefCell, error::Error, rc::Rc};
+use futures::executor::block_on;
 
 use cortex_lang::{interpreting::{env::Environment, interpreter::CortexInterpreter, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
 use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
+
+use super::spotify::spotify::Spotify;
 
 #[derive(Error, Debug)]
 pub enum RunnerError {
@@ -16,6 +19,7 @@ pub enum RunnerError {
 pub struct CommandRunner {
     handler: TemplateHandler,
     interpreter: CortexInterpreter,
+    spotify: Option<Rc<RefCell<Spotify>>>,
 }
 
 impl CommandRunner {
@@ -23,11 +27,13 @@ impl CommandRunner {
         CommandRunner {
             handler: TemplateHandler::new(),
             interpreter: CortexInterpreter::new(),
+            spotify: None,
         }
     }
 
     pub fn init(&mut self, template_filepath: &str) -> Result<(), Box<dyn Error>> {
         self.handler.load_from_file(template_filepath)?;
+        self.spotify = Some(Rc::new(RefCell::new(block_on(Spotify::init())?)));
         self.register_modules()?;
         Ok(())
     }
@@ -63,6 +69,10 @@ impl CommandRunner {
 
     fn register_modules(&mut self) -> Result<(), Box<dyn Error>> {
         self.interpreter.register_module(&PathIdent::simple(String::from("Debug")), Self::build_debug_module()?)?;
+
+        let spotify_module = block_on(Self::build_spotify_module(self.spotify.clone().unwrap()))?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Spotify")), spotify_module)?;
+
         Ok(())
     }
     fn build_debug_module() -> Result<Module, Box<dyn Error>> {
@@ -81,6 +91,32 @@ impl CommandRunner {
                 }))
             )
         )?;
+        let module = Module::new(mod_env);
+        Ok(module)
+    }
+    async fn build_spotify_module(spotify: Rc<RefCell<Spotify>>) -> Result<Module, Box<dyn Error>> {
+        let mut mod_env = Environment::base();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("search")),
+                vec![Parameter::named("query", CortexType::string(false))],
+                CortexType::string(true),
+                Body::Native(Box::new(move |env| {
+                    let query = env.get_value("query")?;
+                    if let CortexValue::String(string) = query {
+                        let result = block_on(spotify.borrow_mut().get_song(string.clone()))?;
+                        if let Some(song_id) = result {
+                            Ok(CortexValue::String(song_id))
+                        } else {
+                            Ok(CortexValue::Null)
+                        }
+                    } else {
+                        Ok(CortexValue::Null)
+                    }
+                }))
+            )
+        )?;
+
         let module = Module::new(mod_env);
         Ok(module)
     }
