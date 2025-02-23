@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use homeboy::templating::{matcher::{TemplateError, TemplateMatcher}, parser::TemplateParser};
+use homeboy::templating::{matcher::TemplateMatcher, parser::TemplateParser};
 
 #[test]
 fn regex_generation_tests() -> Result<(), Box<dyn Error>> {

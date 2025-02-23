@@ -2,8 +2,6 @@ use dotenv::dotenv;
 use homeboy::runner::runner::CommandRunner;
 use std::{env, error::Error, io::{stdin, stdout, Write}};
 
-mod templating;
-
 fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
     let _vars = env::vars();
