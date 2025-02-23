@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use cortex_lang::{interpreting::{interpreter::{self, CortexInterpreter}, value::CortexValue}, parsing::{ast::r#type::CortexType, codegen::r#trait::SimpleCodeGen}};
+use cortex_lang::{interpreting::{env::Environment, interpreter::{self, CortexInterpreter}, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
 use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
@@ -13,7 +13,7 @@ pub enum RunnerError {
     InvalidParameterType(String),
 }
 
-struct CommandRunner {
+pub struct CommandRunner {
     handler: TemplateHandler,
     interpreter: CortexInterpreter,
 }
@@ -28,6 +28,7 @@ impl CommandRunner {
 
     pub fn init(&mut self, template_filepath: &str) -> Result<(), Box<dyn Error>> {
         self.handler.load_from_file(template_filepath)?;
+        self.register_modules()?;
         Ok(())
     }
 
@@ -59,4 +60,29 @@ impl CommandRunner {
         }
         Ok(())
     }
+
+    fn register_modules(&mut self) -> Result<(), Box<dyn Error>> {
+        self.interpreter.register_module(&PathIdent::simple(String::from("Debug")), Self::build_debug_module()?)?;
+        Ok(())
+    }
+    fn build_debug_module() -> Result<Module, Box<dyn Error>> {
+        let mut mod_env = Environment::base();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("print")),
+                vec![Parameter::named("text", CortexType::string(false))],
+                CortexType::void(false), 
+                Body::Native(Box::new(|env| {
+                    let text = env.get_value("text")?;
+                    if let CortexValue::String(string) = text {
+                        println!("{}", string);
+                    }
+                    Ok(CortexValue::Void)
+                }))
+            )
+        )?;
+        let module = Module::new(mod_env);
+        Ok(module)
+    }
+
 }
