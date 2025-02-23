@@ -1,9 +1,9 @@
-use std::{error::Error, fs::File, io::{BufRead, BufReader}};
+use std::{error::Error, fs::File, io::{BufRead, BufReader}, rc::Rc};
 
 use cortex_lang::parsing::{ast::top_level::Function, parser::CortexParser};
 use thiserror::Error;
 
-use super::{matcher::TemplateMatcher, parser::TemplateParser, template::Template};
+use super::{matcher::{Match, TemplateMatcher}, parser::TemplateParser, template::Template};
 
 #[derive(Error, Debug)]
 pub enum TemplateHandlerError {
@@ -24,6 +24,20 @@ impl TemplateHandler {
             matcher: TemplateMatcher::new(),
             templates: Vec::new(),
         }
+    }
+
+    pub fn find_function<'a>(&'a self, input: &str) -> Result<Option<MatchResult<'a>>, Box<dyn Error>> {
+        for entry in &self.templates {
+            let result = self.matcher.try_match(input, &entry.template)?;
+            if let Some(mmatch) = result {
+                let func = &entry.function;
+                return Ok(Some(MatchResult {
+                    function: func,
+                    match_inst: mmatch,
+                }));
+            }
+        }
+        Ok(None)
     }
 
     pub fn load_from_file(&mut self, filepath: &str) -> Result<(), Box<dyn Error>> {
@@ -57,7 +71,7 @@ impl TemplateHandler {
                 let function = CortexParser::parse_function(&function_string)?;
                 let entry = TemplateEntry {
                     template: template,
-                    function: function,
+                    function: Rc::new(function),
                 };
                 self.templates.push(entry);
                 break;
@@ -83,5 +97,10 @@ impl TemplateHandler {
 
 struct TemplateEntry {
     template: Template,
-    function: Function,
+    function: Rc<Function>,
+}
+
+pub struct MatchResult<'a> {
+    pub function: &'a Rc<Function>,
+    pub match_inst: Match,
 }

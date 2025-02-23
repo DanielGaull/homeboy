@@ -9,8 +9,6 @@ use super::template::{SymbolInternal, Template};
 pub enum TemplateError {
     #[error("Subtemplate \"{0}\" not found")]
     SubtemplateNotFound(String),
-    #[error("Template did not generate a match (regex '{0}' on input '{1}')")]
-    NoMatchForTemplate(String, String),
     #[error("Template generated invalid regex")]
     InvalidRegex,
 }
@@ -30,7 +28,7 @@ impl TemplateMatcher {
         self.subtemplate_definitions.insert(String::from(name), template);
     }
 
-    pub fn try_match(&self, input: &str, template: &Template) -> Result<Match, TemplateError> {
+    pub fn try_match(&self, input: &str, template: &Template) -> Result<Option<Match>, TemplateError> {
         let regex_str = self.convert_template_to_regex(template)?;
         let re = Regex::new(&regex_str).map_err(|_e| TemplateError::InvalidRegex)?;
         if let Some(captures) = re.captures(input) {
@@ -40,13 +38,9 @@ impl TemplateMatcher {
                 .filter_map(|name| captures.name(name).map(|m| (name.to_string(), m.as_str().trim().to_string())))
                 .collect();
 
-            Ok(
-                Match {
-                    variable_bindings: named_values,
-                }
-            )
+            Ok(Some(Match { variable_bindings: named_values }))
         } else {
-            Err(TemplateError::NoMatchForTemplate(regex_str, String::from(input)))
+            Ok(None)
         }
     }
 

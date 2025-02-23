@@ -35,6 +35,11 @@ fn regex_matching_tests() -> Result<(), Box<dyn Error>> {
         &matcher
     )?;
 
+    assert_no_match("{pre command ask}? foo", "you please foo", &matcher)?;
+    assert_no_match("{pre command ask}? foo", "baz", &matcher)?;
+    assert_no_match("{pre command ask}? foo", "please baz", &matcher)?;
+    assert_no_match("{pre command ask}? foo", "could you baz", &matcher)?;
+
     Ok(())
 }
 
@@ -47,7 +52,7 @@ fn assert_regex(input_template: &str, expected_regex: &str, matcher: &TemplateMa
 
 fn assert_match(input: &str, statement: &str, bindings: Vec<(&str, &str)>, matcher: &TemplateMatcher) -> Result<(), Box<dyn Error>> {
     let template = TemplateParser::parse_template(input)?;
-    let matched = matcher.try_match(statement, &template)?;
+    let matched = matcher.try_match(statement, &template)?.unwrap();
     assert_eq!(bindings.len(), matched.num_bindings());
     for b in bindings {
         let bound = matched.get_binding(b.0).unwrap();
@@ -56,15 +61,11 @@ fn assert_match(input: &str, statement: &str, bindings: Vec<(&str, &str)>, match
     Ok(())
 }
 
-fn assert_err(input_template: &str, input_statement: &str, flavor: TemplateError, matcher: &TemplateMatcher) -> Result<(), Box<dyn Error>> {
-    let template = TemplateParser::parse_template(input_template)?;
-    let matched = matcher.try_match(input_statement, &template);
-    if let Err(error) = matched {
-        assert_eq!(flavor, error);
-        Ok(())
-    } else {
-        panic!("Template match did not produce error (template '{}', input '{}')", input_template, input_statement);
-    }
+fn assert_no_match(input: &str, statement: &str, matcher: &TemplateMatcher) -> Result<(), Box<dyn Error>> {
+    let template = TemplateParser::parse_template(input)?;
+    let matched = matcher.try_match(statement, &template)?;
+    assert!(matched.is_none());
+    Ok(())
 }
 
 fn setup_matcher() -> Result<TemplateMatcher, Box<dyn Error>> {
