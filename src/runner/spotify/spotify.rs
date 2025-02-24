@@ -36,7 +36,7 @@ impl Spotify {
             SearchType::Track, 
             Some(Market::Country(Country::UnitedStates)), 
             None, 
-            Some(1), 
+            Some(10), 
             None,
         ).await?;
         if let SearchResult::Tracks(page) = result {
