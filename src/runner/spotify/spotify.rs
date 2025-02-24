@@ -1,6 +1,6 @@
 use std::{env, error::Error};
 
-use rspotify::{model::{Country, Id, Market, PlayableId, SearchResult, SearchType, TrackId}, prelude::{BaseClient, OAuthClient}, scopes, AuthCodeSpotify, Credentials, OAuth};
+use rspotify::{model::{Country, DeviceType, Id, Market, PlayableId, SearchResult, SearchType, TrackId}, prelude::{BaseClient, OAuthClient}, scopes, AuthCodeSpotify, Credentials, OAuth};
 
 pub struct Spotify {
     client: AuthCodeSpotify,
@@ -55,8 +55,33 @@ impl Spotify {
         Ok(None)
     }
 
-    pub async fn play_song(&self, id: String) -> Result<(), Box<dyn Error>> {
-        self.client.start_uris_playback(vec![PlayableId::Track(TrackId::from_id(id).unwrap())], None, None, None).await?;
+    pub async fn play_song(&self, id: String, device_type: u8) -> Result<(), Box<dyn Error>> {
+        // 0 = whatever is currently used
+        // 1 = computer
+        // 2 = phone
+        let devices = self.client.device().await?;
+        let mut device_to_use = None;
+        if device_type != 0 {
+            let type_to_find = 
+                if device_type == 1 {
+                    DeviceType::Computer
+                } else {
+                    DeviceType::Smartphone
+                };
+            for d in devices {
+                if d._type == type_to_find {
+                    device_to_use = Some(d);
+                    break;
+                }
+            }
+        }
+
+        self.client.start_uris_playback(
+            vec![PlayableId::Track(TrackId::from_id(id).unwrap())],
+            device_to_use.map(|f| f.id).flatten().as_deref(),
+            None,
+            None,
+        ).await?;
         Ok(())
     }
 }

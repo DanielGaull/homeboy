@@ -138,12 +138,18 @@ impl CommandRunner {
         mod_env.add_function(
             Function::new(
                 OptionalIdentifier::Ident(String::from("play")),
-                vec![Parameter::named("song_id", CortexType::string(false))],
+                vec![
+                    Parameter::named("song_id", CortexType::string(false)),
+                    Parameter::named("device_type", CortexType::number(false)),
+                ],
                 CortexType::void(false),
                 Body::Native(Box::new(move |env| {
                     let song_id = env.get_value("song_id")?;
+                    let device_type = env.get_value("device_type")?;
                     if let CortexValue::String(string) = song_id {
-                        block_on(sp2.borrow_mut().play_song(string.clone()))?;
+                        if let CortexValue::Number(typ) = device_type {
+                            block_on(sp2.borrow_mut().play_song(string.clone(), *typ as u8))?;
+                        }
                     }
                     Ok(CortexValue::Void)
                 }))
