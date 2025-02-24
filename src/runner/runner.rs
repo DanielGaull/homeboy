@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, error::Error, path::Path, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, env, error::Error, path::Path, rc::Rc};
 use futures::executor::block_on;
 
 use cortex_lang::{interpreting::{env::Environment, interpreter::CortexInterpreter, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function, Struct}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
 
-use super::{spotify::spotify::Spotify, voice::{deepgram::DeepgramClient, record::Recorder}};
+use super::{location, spotify::spotify::Spotify, voice::{deepgram::DeepgramClient, record::Recorder}};
 
 #[derive(Error, Debug)]
 pub enum RunnerError {
@@ -156,6 +156,9 @@ impl CommandRunner {
         let voice_module = block_on(Self::build_voice_module(self.deepgram.clone().unwrap()))?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Voice")), voice_module)?;
 
+        let weather_module = Self::build_weather_module()?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Weather")), weather_module)?;
+
         Ok(())
     }
     fn build_debug_module() -> Result<Module, Box<dyn Error>> {
@@ -238,6 +241,30 @@ impl CommandRunner {
                 }))
             )
         )?;
+        let sp3 = spotify.clone();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("pause")),
+                vec![],
+                CortexType::void(false),
+                Body::Native(Box::new(move |_env| {
+                    block_on(sp3.borrow_mut().pause())?;
+                    Ok(CortexValue::Void)
+                }))
+            )
+        )?;
+        let sp4 = spotify.clone();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("resume")),
+                vec![],
+                CortexType::void(false),
+                Body::Native(Box::new(move |_env| {
+                    block_on(sp4.borrow_mut().resume())?;
+                    Ok(CortexValue::Void)
+                }))
+            )
+        )?;
 
         let module = Module::new(mod_env);
         Ok(module)
@@ -255,6 +282,38 @@ impl CommandRunner {
                     let text = env.get_value("text")?;
                     if let CortexValue::String(string) = text {
                         block_on(dg1.borrow().speak(string))?;
+                    }
+                    Ok(CortexValue::Void)
+                }))
+            )
+        )?;
+        let module = Module::new(mod_env);
+        Ok(module)
+    }
+    fn build_weather_module() -> Result<Module, Box<dyn Error>> {
+        let mut mod_env = Environment::base();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("get")),
+                vec![],
+                CortexType::void(false), 
+                Body::Native(Box::new(move |_env| {
+                    let loc = block_on(location::get_loc())?;
+                    let weather = &openweathermap::blocking::weather(
+                        format!("{},{}", loc.lat, loc.long).as_str(), 
+                        "imperial", 
+                        "en", 
+                        env::var("open_weather_api_key")?.as_str()
+                    );
+                    match weather {
+                        Ok(current) => println!(
+                            "Today's weather in {} is {} degrees (feels like {}) with wind speeds of {} mph",
+                            current.name.as_str(),
+                            current.main.temp,
+                            current.main.feels_like,
+                            current.wind.speed,
+                        ),
+                        Err(e) => println!("Could not fetch weather because: {}", e),
                     }
                     Ok(CortexValue::Void)
                 }))

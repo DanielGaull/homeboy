@@ -88,4 +88,14 @@ impl Spotify {
         ).await?;
         Ok(())
     }
+
+    pub async fn pause(&self) -> Result<(), Box<dyn Error>> {
+        self.client.pause_playback(None).await?;
+        Ok(())
+    }
+
+    pub async fn resume(&self) -> Result<(), Box<dyn Error>> {
+        self.client.resume_playback(None, None).await?;
+        Ok(())
+    }
 }
