@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
 
-use super::spotify::spotify::Spotify;
+use super::{spotify::spotify::Spotify, voice::deepgram::DeepgramClient};
 
 #[derive(Error, Debug)]
 pub enum RunnerError {
@@ -20,6 +20,7 @@ pub struct CommandRunner {
     handler: TemplateHandler,
     interpreter: CortexInterpreter,
     spotify: Option<Rc<RefCell<Spotify>>>,
+    deepgram: Option<Rc<RefCell<DeepgramClient>>>,
 }
 
 impl CommandRunner {
@@ -28,12 +29,14 @@ impl CommandRunner {
             handler: TemplateHandler::new(),
             interpreter: CortexInterpreter::new(),
             spotify: None,
+            deepgram: None,
         }
     }
 
     pub fn init(&mut self, template_filepath: &str) -> Result<(), Box<dyn Error>> {
         self.handler.load_from_file(template_filepath)?;
         self.spotify = Some(Rc::new(RefCell::new(block_on(Spotify::init())?)));
+        self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init()?)));
         self.register_modules()?;
         Ok(())
     }
@@ -75,6 +78,9 @@ impl CommandRunner {
 
         let spotify_module = block_on(Self::build_spotify_module(self.spotify.clone().unwrap()))?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Spotify")), spotify_module)?;
+
+        let voice_module = block_on(Self::build_voice_module(self.deepgram.clone().unwrap()))?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Voice")), voice_module)?;
 
         Ok(())
     }
@@ -159,6 +165,27 @@ impl CommandRunner {
             )
         )?;
 
+        let module = Module::new(mod_env);
+        Ok(module)
+    }
+
+    async fn build_voice_module(deepgram: Rc<RefCell<DeepgramClient>>) -> Result<Module, Box<dyn Error>> {
+        let mut mod_env = Environment::base();
+        let dg1 = deepgram.clone();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("speak")),
+                vec![Parameter::named("text", CortexType::string(false))],
+                CortexType::void(false), 
+                Body::Native(Box::new(move |env| {
+                    let text = env.get_value("text")?;
+                    if let CortexValue::String(string) = text {
+                        block_on(dg1.borrow().speak(string))?;
+                    }
+                    Ok(CortexValue::Void)
+                }))
+            )
+        )?;
         let module = Module::new(mod_env);
         Ok(module)
     }
