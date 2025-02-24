@@ -11,6 +11,7 @@ use std::error::Error;
 
 pub struct Recorder {
     utils: Option<(Arc<Mutex<Option<WavWriter<BufWriter<File>>>>>, cpal::Stream)>,
+    selected_input: Option<usize>,
 }
 
 #[derive(Error, Debug)]
@@ -29,7 +30,22 @@ impl RecordingError {
 
 impl Recorder {
     pub fn new() -> Self {
-        Recorder { utils: None }
+        Recorder { utils: None, selected_input: None }
+    }
+    pub fn get_input_devices(&self) -> Result<Vec<(usize, String)>, Box<dyn Error>> {
+        let host = cpal::default_host();
+        let mut device_names = Vec::new();
+        for (i, device) in host.devices()?.into_iter().enumerate() {
+            let configs = device.supported_input_configs()?;
+            if let Some(_) = configs.peekable().peek() {
+                device_names.push((i, device.name()?));
+            }
+        }
+        //Ok(host.devices()?.into_iter().map(|d| d.name()).collect::<Result<Vec<_>, _>>()?)
+        Ok(device_names)
+    }
+    pub fn set_preferred_input_device(&mut self, index: usize) {
+        self.selected_input = Some(index);
     }
     pub fn start_recording(&mut self, save_location: &Path) -> Result<(), Box<dyn Error>> {
         if self.utils.is_some() {
@@ -41,8 +57,20 @@ impl Recorder {
         let host = cpal::default_host();
 
         // Set up the input device and stream with the default input config.
-        let device = host.default_input_device().expect("failed to find input device");
-
+        let mut input_device = None;
+        if let Some(preferred_idx) = &self.selected_input {
+            let devices = host.devices()?;
+            let mut vec = devices.collect::<Vec<cpal::Device>>();
+            if let Some(_) = vec.get(*preferred_idx) {
+                input_device = Some(vec.remove(*preferred_idx));
+            }
+        }
+        let device = 
+            if let Some(dev) = input_device {
+                dev
+            } else {
+                host.default_input_device().expect("failed to find input device")
+            };
         println!("Input device: {}", device.name()?);
 
         let config = device

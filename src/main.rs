@@ -11,6 +11,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Initializing...");
     runner.init("./templates.txt")?;
     println!("Initialized");
+
+    let devices = runner.get_input_devices()?;
+    println!("Select Input Device:");
+    for (i, dev) in devices.iter().enumerate() {
+        println!("{}. {}", i + 1, dev.1);
+    }
+    let dev_idx = read_number(1, devices.len()) - 1;
+    let device = devices.get(dev_idx).unwrap().0;
+    runner.set_input_device(device);
+
     runner.run_loop()?;
     Ok(())
     // loop {
@@ -21,7 +31,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Ok(())
 }
 
-#[allow(dead_code)]
 fn read_line() -> String {
     let mut s = String::new();
     let _ = stdout().flush();
@@ -33,4 +42,19 @@ fn read_line() -> String {
         s.pop();
     }
     s
+}
+fn read_number(min: usize, max: usize) -> usize {
+    loop {
+        let input = read_line();
+
+        match input.trim().parse::<usize>() {
+            Ok(num) => {
+                if num >= min && num <= max {
+                    return num
+                }
+                println!("Number must be between {} and {} (inclusive)", min, max);
+            },
+            Err(_) => println!("Invalid input. Please enter a valid positive integer."),
+        }
+    }
 }

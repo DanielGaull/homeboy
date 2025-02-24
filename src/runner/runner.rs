@@ -49,6 +49,13 @@ impl CommandRunner {
         Ok(())
     }
 
+    pub fn get_input_devices(&self) -> Result<Vec<(usize, String)>, Box<dyn Error>> {
+        self.recorder.as_ref().unwrap().borrow().get_input_devices()
+    }
+    pub fn set_input_device(&mut self, idx: usize) {
+        self.recorder.as_mut().unwrap().borrow_mut().set_preferred_input_device(idx);
+    }
+
     pub fn run_loop(mut self) -> Result<(), Box<dyn Error>> {
         println!("Listening");
         if let Err(error) = listen(move |event| self.handle_key_event(event)) {
