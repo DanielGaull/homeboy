@@ -11,14 +11,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Initializing...");
     runner.init("./templates.txt")?;
     println!("Initialized");
-    loop {
-        print!("Input: ");
-        let line = read_line();
-        runner.run(&line)?;
-    }
+    runner.run_loop()?;
+    Ok(())
+    // loop {
+    //     print!("Input: ");
+    //     let line = read_line();
+    //     runner.run(&line)?;
+    // }
     // Ok(())
 }
 
+#[allow(dead_code)]
 fn read_line() -> String {
     let mut s = String::new();
     let _ = stdout().flush();

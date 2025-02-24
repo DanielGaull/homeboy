@@ -1,12 +1,13 @@
-use std::{cell::RefCell, collections::HashMap, error::Error, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, error::Error, path::Path, rc::Rc};
 use futures::executor::block_on;
 
 use cortex_lang::{interpreting::{env::Environment, interpreter::CortexInterpreter, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function, Struct}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
+use rdev::{listen, Event, EventType, Key, ListenError};
 use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
 
-use super::{spotify::spotify::Spotify, voice::deepgram::DeepgramClient};
+use super::{spotify::spotify::Spotify, voice::{deepgram::DeepgramClient, record::Recorder}};
 
 #[derive(Error, Debug)]
 pub enum RunnerError {
@@ -14,6 +15,8 @@ pub enum RunnerError {
     BindingNotFound(String),
     #[error("Invalid parameter type '{0}'. Parameters must be string or string?")]
     InvalidParameterType(String),
+    #[error("There was a listen error")]
+    ListenError(ListenError),
 }
 
 pub struct CommandRunner {
@@ -21,6 +24,8 @@ pub struct CommandRunner {
     interpreter: CortexInterpreter,
     spotify: Option<Rc<RefCell<Spotify>>>,
     deepgram: Option<Rc<RefCell<DeepgramClient>>>,
+    recorder: Option<Rc<RefCell<Recorder>>>,
+    f8_down: bool,
 }
 
 impl CommandRunner {
@@ -30,6 +35,8 @@ impl CommandRunner {
             interpreter: CortexInterpreter::new(),
             spotify: None,
             deepgram: None,
+            recorder: None,
+            f8_down: false,
         }
     }
 
@@ -37,8 +44,50 @@ impl CommandRunner {
         self.handler.load_from_file(template_filepath)?;
         self.spotify = Some(Rc::new(RefCell::new(block_on(Spotify::init())?)));
         self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init()?)));
+        self.recorder = Some(Rc::new(RefCell::new(Recorder::new())));
         self.register_modules()?;
         Ok(())
+    }
+
+    pub fn run_loop(mut self) -> Result<(), Box<dyn Error>> {
+        println!("Listening");
+        if let Err(error) = listen(move |event| self.handle_key_event(event)) {
+            return Err(Box::new(RunnerError::ListenError(error)));
+        }
+        Ok(())
+    }
+    fn handle_key_event(&mut self, event: Event) {
+        match event.event_type {
+            EventType::KeyPress(Key::F8) => {
+                if !self.f8_down {
+                    self.f8_down = true;
+                    let result = self
+                        .recorder
+                        .clone()
+                        .unwrap()
+                        .borrow_mut()
+                        .start_recording(Path::new("./recording.wav"));
+                    if let Err(error) = result {
+                        println!("{}", error);
+                        panic!("Error when starting recording");
+                    }
+                }
+            }
+            EventType::KeyRelease(Key::F8) => {
+                self.f8_down = false;
+                let result = self
+                    .recorder
+                    .clone()
+                    .unwrap()
+                    .borrow_mut()
+                    .stop_recording();
+                if let Err(error) = result {
+                    println!("{}", error);
+                    panic!("Error when stopping recording");
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn run(&mut self, input: &str) -> Result<(), Box<dyn Error>> {
