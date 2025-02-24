@@ -62,7 +62,10 @@ impl CommandRunner {
             }
             let _return_val = self.interpreter.call_function(func, values)?;
         } else {
-            // TODO: fallback (match wasn't found)
+            let fallback = self.handler.get_fallback()?;
+            if let Some(func) = fallback {
+                let _return_val = self.interpreter.call_function(&func, vec![CortexValue::String(String::from(input))])?;
+            }
         }
         Ok(())
     }

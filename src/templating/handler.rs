@@ -16,6 +16,7 @@ pub enum TemplateHandlerError {
 pub struct TemplateHandler {
     matcher: TemplateMatcher,
     templates: Vec<TemplateEntry>,
+    fallback: Option<Rc<Function>>,
 }
 
 impl TemplateHandler {
@@ -23,6 +24,7 @@ impl TemplateHandler {
         TemplateHandler {
             matcher: TemplateMatcher::new(),
             templates: Vec::new(),
+            fallback: None,
         }
     }
 
@@ -38,6 +40,10 @@ impl TemplateHandler {
             }
         }
         Ok(None)
+    }
+
+    pub fn get_fallback(&self) -> Result<Option<Rc<Function>>, Box<dyn Error>> {
+        Ok(self.fallback.clone())
     }
 
     pub fn load_from_file(&mut self, filepath: &str) -> Result<(), Box<dyn Error>> {
@@ -86,6 +92,17 @@ impl TemplateHandler {
                 let subtemplate_str = subtemplate_lines.join("");
                 let subtemplate_template = TemplateParser::parse_template(&subtemplate_str)?;
                 self.matcher.add_subtemplate(&name, subtemplate_template);
+                break;
+            } else if line.starts_with("% fallback") {
+                let mut function_lines = Vec::new();
+                line = String::new();
+                while !line.starts_with("% end") {
+                    function_lines.push(line.clone());
+                    line = iter.next().ok_or(TemplateHandlerError::UnexpectedEof("reading fallback function"))??;
+                }
+                let function_string = function_lines.into_iter().skip(1).collect::<Vec<_>>().join("\n");
+                let function = CortexParser::parse_function(&function_string)?;
+                self.fallback = Some(Rc::new(function));
                 break;
             } else {
                 return Err(Box::new(TemplateHandlerError::IllegalLine(line)));
