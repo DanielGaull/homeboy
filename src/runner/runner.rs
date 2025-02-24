@@ -92,11 +92,29 @@ impl CommandRunner {
                     println!("{}", error);
                     panic!("Error when stopping recording");
                 }
+
+                let result = self.handle_recording();
+                if let Err(error) = result {
+                    println!("{}", error);
+                    panic!("Error when handling recording");
+                }
             }
             _ => {}
         }
     }
 
+    fn handle_recording(&mut self) -> Result<(), Box<dyn Error>> {
+        let transcript = block_on(self.deepgram.clone().unwrap().borrow().transcribe(Path::new("./recording.wav")))?;
+        println!("Transcript: {}", transcript);
+        let command: String = transcript
+            .as_str()
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+        self.run(command.as_str())?;
+        Ok(())
+    }
     pub fn run(&mut self, input: &str) -> Result<(), Box<dyn Error>> {
         let result = self.handler.find_function(input)?;
         if let Some(the_match) = result {

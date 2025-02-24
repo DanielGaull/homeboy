@@ -1,6 +1,8 @@
 use audio::channel::LinearChannel;
 use audio::Buf;
 use bytes::BytesMut;
+use deepgram::common::audio_source::AudioSource;
+use deepgram::common::options::Language;
 use deepgram::speak::options::{Container, Encoding, Model};
 use deepgram::{speak::options::Options, Deepgram};
 use futures::stream::StreamExt;
@@ -8,6 +10,8 @@ use rodio::buffer::SamplesBuffer;
 use rodio::{OutputStream, Sink};
 use std::env;
 use std::error::Error;
+use tokio::fs::File;
+use std::path::Path;
 
 pub struct DeepgramClient {
     client: Deepgram,
@@ -21,6 +25,24 @@ impl DeepgramClient {
                 client: client,
             }
         )
+    }
+
+    pub async fn transcribe(&self, filepath: &Path) -> Result<String, Box<dyn Error>> {
+        let file = File::open(filepath).await?;
+        let source = AudioSource::from_buffer_with_mime_type(file, "audio/wav");
+        let options = deepgram::common::options::Options::builder()
+            .punctuate(true)
+            .language(Language::en_US)
+            .build();
+
+        let response = self.client
+            .transcription()
+            .prerecorded(source, &options)
+            .await?;
+        
+        let transcript = &response.results.channels[0].alternatives[0].transcript;
+
+        Ok(transcript.clone())
     }
 
     pub async fn speak(&self, text: &str) -> Result<(), Box<dyn Error>> {
