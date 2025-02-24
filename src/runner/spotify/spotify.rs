@@ -68,7 +68,7 @@ impl Spotify {
                 } else {
                     DeviceType::Smartphone
                 };
-            for d in devices {
+            for d in &devices {
                 if d._type == type_to_find {
                     device_to_use = Some(d);
                     break;
@@ -76,9 +76,13 @@ impl Spotify {
             }
         }
 
+        if device_to_use.is_none() && devices.len() > 0 {
+            device_to_use = devices.get(0);
+        }
+
         self.client.start_uris_playback(
             vec![PlayableId::Track(TrackId::from_id(id).unwrap())],
-            device_to_use.map(|f| f.id).flatten().as_deref(),
+            device_to_use.map(|f| f.id.clone()).flatten().as_deref(),
             None,
             None,
         ).await?;
