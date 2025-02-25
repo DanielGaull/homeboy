@@ -120,7 +120,7 @@ impl CommandRunner {
             .as_str()
             .to_lowercase()
             .chars()
-            .filter(|c| c.is_alphanumeric())
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
             .collect();
         self.run(command.as_str())?;
         Ok(())
