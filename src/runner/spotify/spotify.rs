@@ -98,4 +98,41 @@ impl Spotify {
         self.client.resume_playback(None, None).await?;
         Ok(())
     }
+
+    pub async fn skip(&self) -> Result<(), Box<dyn Error>> {
+        self.client.next_track(None).await?;
+        Ok(())
+    }
+
+    pub async fn queue_song(&self, id: String, device_type: u8) -> Result<(), Box<dyn Error>> {
+        // 0 = whatever is currently used
+        // 1 = computer
+        // 2 = phone
+        let devices = self.client.device().await?;
+        let mut device_to_use = None;
+        if device_type != 0 {
+            let type_to_find = 
+                if device_type == 1 {
+                    DeviceType::Computer
+                } else {
+                    DeviceType::Smartphone
+                };
+            for d in &devices {
+                if d._type == type_to_find {
+                    device_to_use = Some(d);
+                    break;
+                }
+            }
+        }
+
+        if device_to_use.is_none() && devices.len() > 0 {
+            device_to_use = devices.get(0);
+        }
+
+        self.client.add_item_to_queue(
+            PlayableId::Track(TrackId::from_id(id).unwrap()),
+            device_to_use.map(|f| f.id.clone()).flatten().as_deref()
+        ).await?;
+        Ok(())
+    }
 }

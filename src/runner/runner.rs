@@ -248,7 +248,7 @@ impl CommandRunner {
                     let device_type = env.get_value("device_type")?;
                     if let CortexValue::String(string) = song_id {
                         if let CortexValue::Number(typ) = device_type {
-                            block_on(sp2.borrow_mut().play_song(string.clone(), *typ as u8))?;
+                            block_on(sp2.borrow().play_song(string.clone(), *typ as u8))?;
                         }
                     }
                     Ok(CortexValue::Void)
@@ -262,7 +262,7 @@ impl CommandRunner {
                 vec![],
                 CortexType::void(false),
                 Body::Native(Box::new(move |_env| {
-                    block_on(sp3.borrow_mut().pause())?;
+                    block_on(sp3.borrow().pause())?;
                     Ok(CortexValue::Void)
                 }))
             )
@@ -274,7 +274,38 @@ impl CommandRunner {
                 vec![],
                 CortexType::void(false),
                 Body::Native(Box::new(move |_env| {
-                    block_on(sp4.borrow_mut().resume())?;
+                    block_on(sp4.borrow().resume())?;
+                    Ok(CortexValue::Void)
+                }))
+            )
+        )?;
+        let sp5 = spotify.clone();
+        mod_env.add_function(Function::new(
+            OptionalIdentifier::Ident(String::from("skip")),
+            vec![],
+            CortexType::void(false),
+            Body::Native(Box::new(move |_env| {
+                block_on(sp5.borrow().skip())?;
+                Ok(CortexValue::Void)
+            }))
+        ))?;
+        let sp6 = spotify.clone();
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("queue")),
+                vec![
+                    Parameter::named("song_id", CortexType::string(false)),
+                    Parameter::named("device_type", CortexType::number(false)),
+                ],
+                CortexType::void(false),
+                Body::Native(Box::new(move |env| {
+                    let song_id = env.get_value("song_id")?;
+                    let device_type = env.get_value("device_type")?;
+                    if let CortexValue::String(string) = song_id {
+                        if let CortexValue::Number(typ) = device_type {
+                            block_on(sp6.borrow().queue_song(string.clone(), *typ as u8))?;
+                        }
+                    }
                     Ok(CortexValue::Void)
                 }))
             )
