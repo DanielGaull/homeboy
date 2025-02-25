@@ -2,12 +2,22 @@ use std::{cell::RefCell, collections::HashMap, env, error::Error, path::Path, rc
 use futures::executor::block_on;
 
 use cortex_lang::{interpreting::{env::Environment, interpreter::CortexInterpreter, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function, Struct}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
+use openweathermap::Volume;
 use rdev::{listen, Event, EventType, Key, ListenError};
 use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
 
 use super::{location, spotify::spotify::Spotify, voice::{deepgram::DeepgramClient, record::Recorder}};
+
+macro_rules! unwrap_enum {
+    ($e:expr, $p:pat => $v:expr) => {
+        match $e {
+            $p => $v,
+            _ => panic!("Unexpected variant"),
+        }
+    };
+}
 
 #[derive(Error, Debug)]
 pub enum RunnerError {
@@ -149,12 +159,16 @@ impl CommandRunner {
 
     fn register_modules(&mut self) -> Result<(), Box<dyn Error>> {
         self.interpreter.register_module(&PathIdent::simple(String::from("Debug")), Self::build_debug_module()?)?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Util")), Self::build_util_module()?)?;
 
         let spotify_module = block_on(Self::build_spotify_module(self.spotify.clone().unwrap()))?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Spotify")), spotify_module)?;
 
         let voice_module = block_on(Self::build_voice_module(self.deepgram.clone().unwrap()))?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Voice")), voice_module)?;
+
+        let location_module = Self::build_location_module()?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Location")), location_module)?;
 
         let weather_module = Self::build_weather_module()?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Weather")), weather_module)?;
@@ -292,33 +306,145 @@ impl CommandRunner {
     }
     fn build_weather_module() -> Result<Module, Box<dyn Error>> {
         let mut mod_env = Environment::base();
+        mod_env.add_struct(Struct::new(
+            "Volume",
+            vec![
+                ("lastHour", CortexType::number(true)),
+                ("last3Hours", CortexType::number(true)),
+            ],
+        ))?;
+        mod_env.add_struct(Struct::new(
+            "Report", 
+            vec![
+                ("temp", CortexType::number(false)),
+                ("windSpeed", CortexType::number(false)),
+                ("windDirection", CortexType::number(false)),
+                ("windGust", CortexType::number(true)),
+                ("feelsLike", CortexType::number(false)),
+                ("humidity", CortexType::number(false)),
+                ("rain", CortexType::new(PathIdent::new(vec!["Weather", "Volume"]), true)),
+                ("snow", CortexType::new(PathIdent::new(vec!["Weather", "Volume"]), true)),
+            ],
+        ))?;
         mod_env.add_function(
             Function::new(
                 OptionalIdentifier::Ident(String::from("get")),
-                vec![],
-                CortexType::void(false), 
-                Body::Native(Box::new(move |_env| {
-                    let loc = block_on(location::get_loc())?;
+                vec![
+                    Parameter::named("latitude", CortexType::number(false)),
+                    Parameter::named("longitude", CortexType::number(false)),
+                ],
+                CortexType::new(PathIdent::new(vec!["Weather", "Report"]), true), 
+                Body::Native(Box::new(move |env| {
+                    let lat = env.get_value("latitude")?;
+                    let long = env.get_value("longitude")?;
+                    let latitude = unwrap_enum!(lat, CortexValue::Number(v) => *v);
+                    let longitude = unwrap_enum!(long, CortexValue::Number(v) => *v);
                     let weather = &openweathermap::blocking::weather(
-                        format!("{},{}", loc.lat, loc.long).as_str(), 
+                        format!("{},{}", latitude, longitude).as_str(), 
                         "imperial", 
                         "en", 
                         env::var("open_weather_api_key")?.as_str()
                     );
-                    match weather {
-                        Ok(current) => println!(
-                            "Today's weather in {} is {} degrees (feels like {}) with wind speeds of {} mph",
-                            current.name.as_str(),
-                            current.main.temp,
-                            current.main.feels_like,
-                            current.wind.speed,
-                        ),
-                        Err(e) => println!("Could not fetch weather because: {}", e),
-                    }
-                    Ok(CortexValue::Void)
+                    let val = match weather {
+                        Ok(current) => {                            
+                            fn volume_to_struct(volume: &Option<Volume>) -> CortexValue {
+                                match volume {
+                                    Some(v) => CortexValue::Composite { 
+                                        struct_name: PathIdent::new(vec!["Weather", "Volume"]), 
+                                        field_values: HashMap::from([
+                                            (String::from("lastHour"), match v.h1 {
+                                                Some(h) => CortexValue::Number(h),
+                                                None => CortexValue::Null,
+                                            }),
+                                            (String::from("last3Hour"), match v.h3 {
+                                                Some(h) => CortexValue::Number(h),
+                                                None => CortexValue::Null,
+                                            }),
+                                        ]),
+                                    },
+                                    None => CortexValue::Null,
+                                }
+                            }
+
+                            let rain = volume_to_struct(&current.rain);
+                            let snow = volume_to_struct(&current.snow);
+                            CortexValue::Composite { 
+                                struct_name: PathIdent::new(vec!["Weather", "Report"]),
+                                field_values: HashMap::from([
+                                    (String::from("temp"), CortexValue::Number(current.main.temp)),
+                                    (String::from("windSpeed"), CortexValue::Number(current.wind.speed)),
+                                    (String::from("windDirection"), CortexValue::Number(current.wind.deg)),
+                                    (String::from("windGust"), match current.wind.gust {
+                                        Some(g) => CortexValue::Number(g),
+                                        None => CortexValue::Null,
+                                    }),
+                                    (String::from("feelsLike"), CortexValue::Number(current.main.feels_like)),
+                                    (String::from("humidity"), CortexValue::Number(current.main.humidity)),
+                                    (String::from("rain"), rain),
+                                    (String::from("snow"), snow),
+                                ]),
+                            }
+                        },
+                        Err(e) => {
+                            println!("Could not fetch weather because: {}", e);
+                            CortexValue::Null
+                        },
+                    };
+                    Ok(val)
                 }))
             )
         )?;
+        let module = Module::new(mod_env);
+        Ok(module)
+    }
+
+    fn build_location_module() -> Result<Module, Box<dyn Error>> {
+        let mut mod_env = Environment::base();
+        mod_env.add_struct(Struct::new(
+            "Location", 
+            vec![
+                ("long", CortexType::number(false)),
+                ("lat", CortexType::number(false)),
+                ("name", CortexType::string(false)),
+            ]
+        ))?;
+        mod_env.add_function(
+            Function::new(
+                OptionalIdentifier::Ident(String::from("get")),
+                vec![],
+                CortexType::new(PathIdent::new(vec!["Location", "Location"]), false),
+                Body::Native(Box::new(move |_env| {
+                    let loc = block_on(location::get_loc())?;
+                    Ok(CortexValue::Composite { 
+                        struct_name: PathIdent::new(vec!["Location", "Location"]), 
+                        field_values: HashMap::from([
+                            (String::from("long"), CortexValue::Number(loc.long)),
+                            (String::from("lat"), CortexValue::Number(loc.lat)),
+                            (String::from("name"), CortexValue::String(loc.city)),
+                        ]),
+                    })
+                }))
+            )
+        )?;
+        let module = Module::new(mod_env);
+        Ok(module)
+    }
+
+    fn build_util_module() -> Result<Module, Box<dyn Error>> {
+        let mut mod_env = Environment::base();
+        mod_env.add_function(Function::new(
+            OptionalIdentifier::Ident(String::from("n2s")), 
+            vec![Parameter::named("numberInput", CortexType::number(false))],
+            CortexType::string(false), 
+            Body::Native(Box::new(|env| {
+                let num = env.get_value("numberInput")?;
+                let val = match num {
+                    CortexValue::Number(n) => CortexValue::String(format!("{}", n)),
+                    _ => CortexValue::String(String::from(""))
+                };
+                Ok(val)
+            })),
+        ))?;
         let module = Module::new(mod_env);
         Ok(module)
     }

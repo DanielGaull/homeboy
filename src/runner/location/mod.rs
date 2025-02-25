@@ -8,8 +8,8 @@ struct IpResponse {
 }
 
 pub struct Location {
-    pub lat: f32,
-    pub long: f32,
+    pub lat: f64,
+    pub long: f64,
     pub city: String,
 }
 
