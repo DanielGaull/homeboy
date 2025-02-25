@@ -67,7 +67,7 @@ impl CommandRunner {
     }
 
     pub fn run_loop(mut self) -> Result<(), Box<dyn Error>> {
-        println!("Listening");
+        println!("Ready");
         if let Err(error) = listen(move |event| self.handle_key_event(event)) {
             return Err(Box::new(RunnerError::ListenError(error)));
         }
@@ -160,6 +160,7 @@ impl CommandRunner {
     fn register_modules(&mut self) -> Result<(), Box<dyn Error>> {
         self.interpreter.register_module(&PathIdent::simple(String::from("Debug")), Self::build_debug_module()?)?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Util")), Self::build_util_module()?)?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Math")), Self::build_math_module()?)?;
 
         let spotify_module = block_on(Self::build_spotify_module(self.spotify.clone().unwrap()))?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Spotify")), spotify_module)?;
@@ -472,6 +473,25 @@ impl CommandRunner {
                 let val = match num {
                     CortexValue::Number(n) => CortexValue::String(format!("{}", n)),
                     _ => CortexValue::String(String::from(""))
+                };
+                Ok(val)
+            })),
+        ))?;
+        let module = Module::new(mod_env);
+        Ok(module)
+    }
+
+    fn build_math_module() -> Result<Module, Box<dyn Error>> {
+        let mut mod_env = Environment::base();
+        mod_env.add_function(Function::new(
+            OptionalIdentifier::Ident(String::from("floor")), 
+            vec![Parameter::named("numberInput", CortexType::number(false))],
+            CortexType::number(false), 
+            Body::Native(Box::new(|env| {
+                let num = env.get_value("numberInput")?;
+                let val = match num {
+                    CortexValue::Number(n) => CortexValue::Number(n.floor()),
+                    _ => num.clone(),
                 };
                 Ok(val)
             })),
