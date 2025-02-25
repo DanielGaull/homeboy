@@ -36,6 +36,7 @@ pub struct CommandRunner {
     deepgram: Option<Rc<RefCell<DeepgramClient>>>,
     recorder: Option<Rc<RefCell<Recorder>>>,
     f8_down: bool,
+    sp_button_pressed: bool, // Bluetooth headset requires button to be pressed once to record and again to stop
 }
 
 impl CommandRunner {
@@ -47,6 +48,7 @@ impl CommandRunner {
             deepgram: None,
             recorder: None,
             f8_down: false,
+            sp_button_pressed: false,
         }
     }
 
@@ -78,38 +80,55 @@ impl CommandRunner {
             EventType::KeyPress(Key::F8) => {
                 if !self.f8_down {
                     self.f8_down = true;
-                    let result = self
-                        .recorder
-                        .clone()
-                        .unwrap()
-                        .borrow_mut()
-                        .start_recording(Path::new("./recording.wav"));
-                    if let Err(error) = result {
-                        println!("{}", error);
-                        panic!("Error when starting recording");
-                    }
+                    self.on_record_start();
                 }
-            }
+            },
+            EventType::KeyPress(Key::Unknown(179)) => {
+                if self.sp_button_pressed {
+                    self.on_record_stop();
+                    self.sp_button_pressed = false;
+                } else {
+                    self.on_record_start();
+                    self.sp_button_pressed = true;
+                }
+            },
             EventType::KeyRelease(Key::F8) => {
                 self.f8_down = false;
-                let result = self
-                    .recorder
-                    .clone()
-                    .unwrap()
-                    .borrow_mut()
-                    .stop_recording();
-                if let Err(error) = result {
-                    println!("{}", error);
-                    panic!("Error when stopping recording");
-                }
-
-                let result = self.handle_recording();
-                if let Err(error) = result {
-                    println!("{}", error);
-                    panic!("Error when handling recording");
-                }
-            }
+                self.on_record_stop();
+            },
             _ => {}
+        }
+    }
+    fn on_record_start(&mut self) {
+        println!("Recording started");
+        let result = self
+            .recorder
+            .clone()
+            .unwrap()
+            .borrow_mut()
+            .start_recording(Path::new("./recording.wav"));
+        if let Err(error) = result {
+            println!("{}", error);
+            println!("Error when starting recording");
+        }
+    }
+    fn on_record_stop(&mut self) {
+        println!("Recording stopped");
+        let result = self
+            .recorder
+            .clone()
+            .unwrap()
+            .borrow_mut()
+            .stop_recording();
+        if let Err(error) = result {
+            println!("{}", error);
+            println!("Error when stopping recording");
+        }
+
+        let result = self.handle_recording();
+        if let Err(error) = result {
+            println!("{}", error);
+            println!("Error when handling recording");
         }
     }
 
