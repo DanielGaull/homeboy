@@ -371,8 +371,8 @@ impl CommandRunner {
                 ("windGust", CortexType::number(true)),
                 ("feelsLike", CortexType::number(false)),
                 ("humidity", CortexType::number(false)),
-                ("rain", CortexType::basic(PathIdent::new(vec!["Weather", "Volume"]), true, vec![])),
-                ("snow", CortexType::basic(PathIdent::new(vec!["Weather", "Volume"]), true, vec![])),
+                ("rain", CortexType::basic(PathIdent::new(vec!["Volume"]), true, vec![])),
+                ("snow", CortexType::basic(PathIdent::new(vec!["Volume"]), true, vec![])),
             ],
             vec![]
         ))?;
