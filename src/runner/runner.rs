@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
 
-use super::{location, spotify::spotify::Spotify, voice::{deepgram::DeepgramClient, record::Recorder}};
+use super::{location, memory::memory::{Memory, MemoryValue}, spotify::spotify::Spotify, voice::{deepgram::DeepgramClient, record::Recorder}};
 
 macro_rules! unwrap_enum {
     ($e:expr, $p:pat => $v:expr) => {
@@ -32,8 +32,11 @@ pub enum RunnerError {
 pub struct CommandRunner {
     handler: TemplateHandler,
     interpreter: CortexInterpreter,
+
     spotify: Option<Rc<RefCell<Spotify>>>,
     deepgram: Option<Rc<RefCell<DeepgramClient>>>,
+    memory: Option<Rc<RefCell<Memory>>>,
+
     recorder: Option<Rc<RefCell<Recorder>>>,
     f8_down: bool,
     sp_button_pressed: bool, // Bluetooth headset requires button to be pressed once to record and again to stop
@@ -45,8 +48,11 @@ impl CommandRunner {
             CommandRunner {
                 handler: TemplateHandler::new(),
                 interpreter: CortexInterpreter::new()?,
+
                 spotify: None,
                 deepgram: None,
+                memory: None,
+
                 recorder: None,
                 f8_down: false,
                 sp_button_pressed: false,
@@ -57,6 +63,8 @@ impl CommandRunner {
     pub fn init(&mut self, template_filepath: &str) -> Result<(), Box<dyn Error>> {
         self.spotify = Some(Rc::new(RefCell::new(block_on(Spotify::init())?)));
         self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init()?)));
+        self.memory = Some(Rc::new(RefCell::new(Memory::load(env::var("memory_path")?)?)));
+
         self.recorder = Some(Rc::new(RefCell::new(Recorder::new())));
         self.register_modules()?;
         self.handler.load_from_file(template_filepath, &mut self.interpreter)?;
@@ -137,17 +145,15 @@ impl CommandRunner {
     fn handle_recording(&mut self) -> Result<(), Box<dyn Error>> {
         let transcript = block_on(self.deepgram.clone().unwrap().borrow().transcribe(Path::new("./recording.wav")))?;
         println!("Transcript: {}", transcript);
-        let command: String = transcript
-            .as_str()
-            .to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-            .collect();
-        self.run(command.as_str())?;
+        self.run(transcript.as_str())?;
         Ok(())
     }
     pub fn run(&mut self, input: &str) -> Result<(), Box<dyn Error>> {
-        let result = self.handler.find_function(input)?;
+        let sanitized_input: String = input.to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect();
+        let result = self.handler.find_function(sanitized_input.as_str())?;
         if let Some(the_match) = result {
             let func = the_match.function;
             let inst = the_match.match_inst;
@@ -173,13 +179,12 @@ impl CommandRunner {
 
     fn register_modules(&mut self) -> Result<(), Box<dyn Error>> {
         self.interpreter.register_module(&PathIdent::simple(String::from("Debug")), Self::build_debug_module()?)?;
-        self.interpreter.register_module(&PathIdent::simple(String::from("Util")), Self::build_util_module()?)?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Math")), Self::build_math_module()?)?;
 
-        let spotify_module = block_on(Self::build_spotify_module(self.spotify.clone().unwrap()))?;
+        let spotify_module = Self::build_spotify_module(self.spotify.clone().unwrap())?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Spotify")), spotify_module)?;
 
-        let voice_module = block_on(Self::build_voice_module(self.deepgram.clone().unwrap()))?;
+        let voice_module = Self::build_voice_module(self.deepgram.clone().unwrap())?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Voice")), voice_module)?;
 
         let location_module = Self::build_location_module()?;
@@ -187,6 +192,9 @@ impl CommandRunner {
 
         let weather_module = Self::build_weather_module()?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Weather")), weather_module)?;
+
+        let memory_module = Self::build_memory_module(self.memory.clone().unwrap())?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Memory")), memory_module)?;
 
         Ok(())
     }
@@ -209,7 +217,7 @@ impl CommandRunner {
         )?;
         Ok(module)
     }
-    async fn build_spotify_module(spotify: Rc<RefCell<Spotify>>) -> Result<Module, Box<dyn Error>> {
+    fn build_spotify_module(spotify: Rc<RefCell<Spotify>>) -> Result<Module, Box<dyn Error>> {
         let mut module = Module::new();
         module.add_struct(
             Struct::new(
@@ -332,7 +340,7 @@ impl CommandRunner {
         Ok(module)
     }
 
-    async fn build_voice_module(deepgram: Rc<RefCell<DeepgramClient>>) -> Result<Module, Box<dyn Error>> {
+    fn build_voice_module(deepgram: Rc<RefCell<DeepgramClient>>) -> Result<Module, Box<dyn Error>> {
         let mut module = Module::new();
         let dg1 = deepgram.clone();
         module.add_function(
@@ -472,25 +480,6 @@ impl CommandRunner {
         Ok(module)
     }
 
-    fn build_util_module() -> Result<Module, Box<dyn Error>> {
-        let mut module = Module::new();
-        module.add_function(PFunction::new(
-            OptionalIdentifier::Ident(String::from("n2s")), 
-            vec![Parameter::named("numberInput", CortexType::number(false))],
-            CortexType::string(false), 
-            Body::Native(Box::new(|env, _heap| {
-                let num = env.get_value("numberInput")?;
-                let val = match num {
-                    CortexValue::Number(n) => CortexValue::String(format!("{}", n)),
-                    _ => CortexValue::String(String::from(""))
-                };
-                Ok(val)
-            })),
-            vec![],
-        ))?;
-        Ok(module)
-    }
-
     fn build_math_module() -> Result<Module, Box<dyn Error>> {
         let mut module = Module::new();
         module.add_function(PFunction::new(
@@ -510,4 +499,102 @@ impl CommandRunner {
         Ok(module)
     }
 
+    fn build_memory_module(memory: Rc<RefCell<Memory>>) -> Result<Module, Box<dyn Error>> {
+        let mut module = Module::new();
+        let m1 = memory.clone();
+        module.add_function(
+            PFunction::new(
+                OptionalIdentifier::Ident(String::from("get")),
+                vec![Parameter::named("key", CortexType::string(false))],
+                CortexType::string(true),
+                Body::Native(Box::new(move |env, _heap| {
+                    let key = env.get_value("key")?;
+                    let key = unwrap_enum!(key, CortexValue::String(v) => v);
+                    let memory = m1.borrow().get(&key);
+                    if let Some(m) = memory {
+                        if let MemoryValue::Single(s) = m {
+                            Ok(CortexValue::String(s))
+                        } else {
+                            Ok(CortexValue::None)
+                        }
+                    } else {
+                        Ok(CortexValue::None)
+                    }
+                })),
+                vec![],
+            )
+        )?;
+        let m2 = memory.clone();
+        module.add_function(
+            PFunction::new(
+                OptionalIdentifier::Ident(String::from("getl")),
+                vec![Parameter::named("key", CortexType::string(false))],
+                CortexType::reference(CortexType::list(CortexType::string(false), true), true),
+                Body::Native(Box::new(move |env, heap| {
+                    let key = env.get_value("key")?;
+                    let key = unwrap_enum!(key, CortexValue::String(v) => v);
+                    let memory = m2.borrow().get(&key);
+                    if let Some(m) = memory {
+                        if let MemoryValue::List(l) = m {
+                            let list = CortexValue::List(l.into_iter().map(|s| CortexValue::String(s)).collect());
+                            let addr = heap.allocate(list);
+                            Ok(CortexValue::Reference(addr))
+                        } else {
+                            Ok(CortexValue::None)
+                        }
+                    } else {
+                        Ok(CortexValue::None)
+                    }
+                })),
+                vec![],
+            )
+        )?;
+        let m3 = memory.clone();
+        module.add_function(
+            PFunction::new(
+                OptionalIdentifier::Ident(String::from("set")),
+                vec![
+                    Parameter::named("key", CortexType::string(false)),
+                    Parameter::named("value", CortexType::simple("T", false))
+                ],
+                CortexType::void(false),
+                Body::Native(Box::new(move |env, heap| {
+                    let key = env.get_value("key")?;
+                    let key = unwrap_enum!(key, CortexValue::String(v) => v);
+                    let value = env.get_value("value")?;
+                    if let CortexValue::Reference(addr) = value {
+                        let ref_val = heap.get(addr);
+                        if let CortexValue::List(ref items) = *ref_val.borrow() {
+                            let value = items.iter().map(|v| to_string(v)).collect::<Vec<_>>();
+                            m3.borrow_mut().set(key, MemoryValue::List(value));
+                        } else {
+                            m3.borrow_mut().set(key, MemoryValue::Single(to_string(&*ref_val.borrow())));
+                        };
+                    } else {
+                        m3.borrow_mut().set(key, MemoryValue::Single(to_string(&value)));
+                    }
+                    m3.borrow().save()?;
+                    
+                    Ok(CortexValue::Void)
+                })),
+                vec![String::from("T")],
+            )
+        )?;
+
+        Ok(module)
+    }
+}
+
+fn to_string(value: &CortexValue) -> String {
+    match value {
+        CortexValue::Number(v) => v.to_string(),
+        CortexValue::Boolean(v) => v.to_string(),
+        CortexValue::String(v) => v.clone(),
+        CortexValue::Char(v) => (*v as char).to_string(),
+        CortexValue::Void => String::from("<void>"),
+        CortexValue::None => String::from("<none>"),
+        CortexValue::Composite { field_values: _ } => String::from("<composite>"),
+        CortexValue::Reference(_) => String::from("<ref>"),
+        CortexValue::List(_) => String::from("<list>"),
+    }
 }
