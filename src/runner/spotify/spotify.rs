@@ -3,7 +3,7 @@ use std::{env, error::Error};
 use rspotify::{model::{Country, DeviceType, Id, Market, PlayableId, SearchResult, SearchType, TrackId}, prelude::{BaseClient, OAuthClient}, scopes, AuthCodeSpotify, Credentials, OAuth};
 
 pub struct Spotify {
-    client: AuthCodeSpotify,
+    client: Option<AuthCodeSpotify>,
 }
 
 pub struct Song {
@@ -13,7 +13,13 @@ pub struct Song {
 }
 
 impl Spotify {
-    pub async fn init() -> Result<Self, Box<dyn Error>> {
+    pub fn new() -> Self {
+        Spotify {
+            client: None,
+        }
+    }
+
+    pub async fn init(&mut self) -> Result<(), Box<dyn Error>> {
         let redirect_url = env::var(String::from("sp_redirect_uri"))?;
         let client_id = env::var(String::from("sp_client_id"))?;
         let client_secret = env::var(String::from("sp_client_secret"))?;
@@ -25,13 +31,12 @@ impl Spotify {
         let url = spotify.get_authorize_url(false).unwrap();
         spotify.prompt_for_token(&url).await?;
 
-        Ok(Spotify {
-            client: spotify
-        })
+        self.client = Some(spotify);
+        Ok(())
     }
     
     pub async fn get_song(&self, query: String) -> Result<Option<Song>, Box<dyn Error>> {
-        let result = self.client.search(
+        let result = self.client.as_ref().unwrap().search(
             &query, 
             SearchType::Track, 
             Some(Market::Country(Country::UnitedStates)), 
@@ -59,7 +64,7 @@ impl Spotify {
         // 0 = whatever is currently used
         // 1 = computer
         // 2 = phone
-        let devices = self.client.device().await?;
+        let devices = self.client.as_ref().unwrap().device().await?;
         let mut device_to_use = None;
         if device_type != 0 {
             let type_to_find = 
@@ -80,7 +85,7 @@ impl Spotify {
             device_to_use = devices.get(0);
         }
 
-        self.client.start_uris_playback(
+        self.client.as_ref().unwrap().start_uris_playback(
             vec![PlayableId::Track(TrackId::from_id(id).unwrap())],
             device_to_use.map(|f| f.id.clone()).flatten().as_deref(),
             None,
@@ -90,17 +95,17 @@ impl Spotify {
     }
 
     pub async fn pause(&self) -> Result<(), Box<dyn Error>> {
-        self.client.pause_playback(None).await?;
+        self.client.as_ref().unwrap().pause_playback(None).await?;
         Ok(())
     }
 
     pub async fn resume(&self) -> Result<(), Box<dyn Error>> {
-        self.client.resume_playback(None, None).await?;
+        self.client.as_ref().unwrap().resume_playback(None, None).await?;
         Ok(())
     }
 
     pub async fn skip(&self) -> Result<(), Box<dyn Error>> {
-        self.client.next_track(None).await?;
+        self.client.as_ref().unwrap().next_track(None).await?;
         Ok(())
     }
 
@@ -108,7 +113,7 @@ impl Spotify {
         // 0 = whatever is currently used
         // 1 = computer
         // 2 = phone
-        let devices = self.client.device().await?;
+        let devices = self.client.as_ref().unwrap().device().await?;
         let mut device_to_use = None;
         if device_type != 0 {
             let type_to_find = 
@@ -129,7 +134,7 @@ impl Spotify {
             device_to_use = devices.get(0);
         }
 
-        self.client.add_item_to_queue(
+        self.client.as_ref().unwrap().add_item_to_queue(
             PlayableId::Track(TrackId::from_id(id).unwrap()),
             device_to_use.map(|f| f.id.clone()).flatten().as_deref()
         ).await?;

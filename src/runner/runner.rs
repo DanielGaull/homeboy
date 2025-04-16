@@ -61,13 +61,16 @@ impl CommandRunner {
     }
 
     pub fn init(&mut self, template_filepath: &str, output_mode: OutputMode) -> Result<(), Box<dyn Error>> {
-        self.spotify = Some(Rc::new(RefCell::new(block_on(Spotify::init())?)));
+        self.spotify = Some(Rc::new(RefCell::new(Spotify::new())));
         self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init(output_mode)?)));
         self.memory = Some(Rc::new(RefCell::new(Memory::load(env::var("memory_path")?)?)));
 
         self.recorder = Some(Rc::new(RefCell::new(Recorder::new())));
         self.register_modules()?;
         self.handler.load_from_file(template_filepath, &mut self.interpreter)?;
+
+        block_on(self.spotify.as_mut().unwrap().borrow_mut().init())?;
+
         Ok(())
     }
 
