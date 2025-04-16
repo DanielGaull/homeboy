@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
 
-use super::{location, memory::memory::{Memory, MemoryValue}, spotify::spotify::Spotify, voice::{deepgram::DeepgramClient, record::Recorder}};
+use super::{location, memory::memory::{Memory, MemoryValue}, spotify::spotify::Spotify, voice::{deepgram::{DeepgramClient, OutputMode}, record::Recorder}};
 
 macro_rules! unwrap_enum {
     ($e:expr, $p:pat => $v:expr) => {
@@ -60,9 +60,9 @@ impl CommandRunner {
         )
     }
 
-    pub fn init(&mut self, template_filepath: &str) -> Result<(), Box<dyn Error>> {
+    pub fn init(&mut self, template_filepath: &str, output_mode: OutputMode) -> Result<(), Box<dyn Error>> {
         self.spotify = Some(Rc::new(RefCell::new(block_on(Spotify::init())?)));
-        self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init()?)));
+        self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init(output_mode)?)));
         self.memory = Some(Rc::new(RefCell::new(Memory::load(env::var("memory_path")?)?)));
 
         self.recorder = Some(Rc::new(RefCell::new(Recorder::new())));

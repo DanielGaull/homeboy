@@ -1,13 +1,15 @@
 use dotenv::dotenv;
-use homeboy::runner::runner::CommandRunner;
+use homeboy::runner::{runner::CommandRunner, voice::deepgram::OutputMode};
 use std::{env, error::Error, io::{stdin, stdout, Write}};
 
 #[allow(dead_code)]
 const INPUT_VOICE: i32 = 0;
 #[allow(dead_code)]
-const INPUT_CONSOLE_TYPING: i32 = 1;
+const INPUT_CONSOLE: i32 = 1;
 
-const INPUT: i32 = INPUT_CONSOLE_TYPING;
+const INPUT: i32 = INPUT_CONSOLE;
+
+const OUTPUT_MODE: OutputMode = OutputMode::Console;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -16,7 +18,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut runner = CommandRunner::new()?;
     println!("Initializing...");
-    runner.init("./templates.txt")?;
+    runner.init("./templates.txt", OUTPUT_MODE)?;
     println!("Initialized");
 
     if INPUT == INPUT_VOICE {

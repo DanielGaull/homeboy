@@ -13,16 +13,24 @@ use std::error::Error;
 use tokio::fs::File;
 use std::path::Path;
 
+#[derive(PartialEq)]
+pub enum OutputMode {
+    Voice,
+    Console,
+}
+
 pub struct DeepgramClient {
     client: Deepgram,
+    output_mode: OutputMode,
 }
 
 impl DeepgramClient {
-    pub fn init() -> Result<Self, Box<dyn Error>> {
+    pub fn init(output_mode: OutputMode) -> Result<Self, Box<dyn Error>> {
         let client = Deepgram::new(env::var(String::from("deepgram_api_secret"))?)?;
         Ok(
             DeepgramClient {
-                client: client,
+                client,
+                output_mode,
             }
         )
     }
@@ -46,6 +54,15 @@ impl DeepgramClient {
     }
 
     pub async fn speak(&self, text: &str) -> Result<(), Box<dyn Error>> {
+        if self.output_mode == OutputMode::Console {
+            println!("Response: {}", text);
+        } else if self.output_mode == OutputMode::Voice {
+            self.do_speak(text).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn do_speak(&self, text: &str) -> Result<(), Box<dyn Error>> {
         let sample_rate = 16000;
         let channels = 1;
 
