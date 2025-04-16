@@ -7,7 +7,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
     let _vars = env::vars();
 
-    let mut runner = CommandRunner::new();
+    let mut runner = CommandRunner::new()?;
     println!("Initializing...");
     runner.init("./templates.txt")?;
     println!("Initialized");

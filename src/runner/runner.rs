@@ -1,7 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, env, error::Error, path::Path, rc::Rc};
+use std::{cell::RefCell, env, error::Error, path::Path, rc::Rc};
+use cortex_lang::{interpreting::{interpreter::CortexInterpreter, value::CortexValue}, parsing::ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, PFunction, Struct}, r#type::CortexType}, preprocessing::module::Module};
 use futures::executor::block_on;
 
-use cortex_lang::{interpreting::{env::Environment, interpreter::CortexInterpreter, module::Module, value::CortexValue}, parsing::{ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, Function, Struct}, r#type::CortexType}, codegen::r#trait::SimpleCodeGen}};
 use openweathermap::Volume;
 use rdev::{listen, Event, EventType, Key, ListenError};
 use thiserror::Error;
@@ -40,24 +40,26 @@ pub struct CommandRunner {
 }
 
 impl CommandRunner {
-    pub fn new() -> Self {
-        CommandRunner {
-            handler: TemplateHandler::new(),
-            interpreter: CortexInterpreter::new(),
-            spotify: None,
-            deepgram: None,
-            recorder: None,
-            f8_down: false,
-            sp_button_pressed: false,
-        }
+    pub fn new() -> Result<Self, Box<dyn Error>> {
+        Ok(
+            CommandRunner {
+                handler: TemplateHandler::new(),
+                interpreter: CortexInterpreter::new()?,
+                spotify: None,
+                deepgram: None,
+                recorder: None,
+                f8_down: false,
+                sp_button_pressed: false,
+            }
+        )
     }
 
     pub fn init(&mut self, template_filepath: &str) -> Result<(), Box<dyn Error>> {
-        self.handler.load_from_file(template_filepath)?;
         self.spotify = Some(Rc::new(RefCell::new(block_on(Spotify::init())?)));
         self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init()?)));
         self.recorder = Some(Rc::new(RefCell::new(Recorder::new())));
         self.register_modules()?;
+        self.handler.load_from_file(template_filepath, &mut self.interpreter)?;
         Ok(())
     }
 
@@ -152,18 +154,11 @@ impl CommandRunner {
             let mut values = Vec::<CortexValue>::new();
             for i in 0..func.num_params() {
                 let param = func.get_param(i).unwrap();
-                let param_name = param.name();
-                let param_type = param.param_type();
-                if !param_type.is_subtype_of(&CortexType::string(true)) {
-                    return Err(Box::new(RunnerError::InvalidParameterType(param_type.codegen(0))));
-                }
+                let param_name = param;
                 if let Some(binding) = inst.get_binding(param_name) {
                     values.push(CortexValue::String(binding.clone()));
                 } else {
-                    if !param_type.nullable() {
-                        return Err(Box::new(RunnerError::BindingNotFound(param_name.clone())));
-                    }
-                    values.push(CortexValue::Null);
+                    values.push(CortexValue::None);
                 }
             }
             let _return_val = self.interpreter.call_function(func, values)?;
@@ -196,175 +191,178 @@ impl CommandRunner {
         Ok(())
     }
     fn build_debug_module() -> Result<Module, Box<dyn Error>> {
-        let mut mod_env = Environment::base();
-        mod_env.add_function(
-            Function::new(
+        let mut module = Module::new();
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("print")),
                 vec![Parameter::named("text", CortexType::string(false))],
                 CortexType::void(false), 
-                Body::Native(Box::new(|env| {
+                Body::Native(Box::new(|env, _heap| {
                     let text = env.get_value("text")?;
                     if let CortexValue::String(string) = text {
                         println!("{}", string);
                     }
                     Ok(CortexValue::Void)
-                }))
+                })),
+                vec![],
             )
         )?;
-        let module = Module::new(mod_env);
         Ok(module)
     }
     async fn build_spotify_module(spotify: Rc<RefCell<Spotify>>) -> Result<Module, Box<dyn Error>> {
-        let mut mod_env = Environment::base();
-        mod_env.add_struct(
+        let mut module = Module::new();
+        module.add_struct(
             Struct::new(
                 "Song", 
                 vec![
                     ("id", CortexType::string(false)),
                     ("name", CortexType::string(false)),
                     ("artist", CortexType::string(false)),
-                ]
+                ],
+                vec![],
             )
         )?;
         let sp1 = spotify.clone();
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("search")),
                 vec![Parameter::named("query", CortexType::string(false))],
-                CortexType::new(PathIdent::new(vec!["Spotify", "Song"]), true),
-                Body::Native(Box::new(move |env| {
+                CortexType::basic(PathIdent::new(vec!["Song"]), true, vec![]),
+                Body::Native(Box::new(move |env, _heap| {
                     let query = env.get_value("query")?;
                     if let CortexValue::String(string) = query {
                         let result = block_on(sp1.borrow_mut().get_song(string.clone()))?;
                         if let Some(song) = result {
-                            Ok(CortexValue::Composite {
-                                struct_name: PathIdent::new(vec!["Spotify", "Song"]),
-                                field_values: HashMap::from([
-                                    (String::from("id"), CortexValue::String(song.id)),
-                                    (String::from("name"), CortexValue::String(song.name)),
-                                    (String::from("artist"), CortexValue::String(song.artist)),
-                                ]),
-                            })
+                            Ok(CortexValue::new_composite(vec![
+                                ("id", CortexValue::String(song.id)),
+                                ("name", CortexValue::String(song.name)),
+                                ("artist", CortexValue::String(song.artist)),
+                            ]))
                         } else {
-                            Ok(CortexValue::Null)
+                            Ok(CortexValue::None)
                         }
                     } else {
-                        Ok(CortexValue::Null)
+                        Ok(CortexValue::None)
                     }
-                }))
+                })),
+                vec![]
             )
         )?;
         let sp2 = spotify.clone();
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("play")),
                 vec![
                     Parameter::named("song_id", CortexType::string(false)),
                     Parameter::named("device_type", CortexType::number(false)),
                 ],
                 CortexType::void(false),
-                Body::Native(Box::new(move |env| {
+                Body::Native(Box::new(move |env, _heap| {
                     let song_id = env.get_value("song_id")?;
                     let device_type = env.get_value("device_type")?;
                     if let CortexValue::String(string) = song_id {
                         if let CortexValue::Number(typ) = device_type {
-                            block_on(sp2.borrow().play_song(string.clone(), *typ as u8))?;
+                            block_on(sp2.borrow().play_song(string.clone(), typ as u8))?;
                         }
                     }
                     Ok(CortexValue::Void)
-                }))
+                })),
+                vec![]
             )
         )?;
         let sp3 = spotify.clone();
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("pause")),
                 vec![],
                 CortexType::void(false),
-                Body::Native(Box::new(move |_env| {
+                Body::Native(Box::new(move |_env, _heap| {
                     block_on(sp3.borrow().pause())?;
                     Ok(CortexValue::Void)
-                }))
+                })),
+                vec![]
             )
         )?;
         let sp4 = spotify.clone();
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("resume")),
                 vec![],
                 CortexType::void(false),
-                Body::Native(Box::new(move |_env| {
+                Body::Native(Box::new(move |_env, _heap| {
                     block_on(sp4.borrow().resume())?;
                     Ok(CortexValue::Void)
-                }))
+                })),
+                vec![],
             )
         )?;
         let sp5 = spotify.clone();
-        mod_env.add_function(Function::new(
+        module.add_function(PFunction::new(
             OptionalIdentifier::Ident(String::from("skip")),
             vec![],
             CortexType::void(false),
-            Body::Native(Box::new(move |_env| {
+            Body::Native(Box::new(move |_env, _heap| {
                 block_on(sp5.borrow().skip())?;
                 Ok(CortexValue::Void)
-            }))
+            })),
+            vec![]
         ))?;
         let sp6 = spotify.clone();
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("queue")),
                 vec![
                     Parameter::named("song_id", CortexType::string(false)),
                     Parameter::named("device_type", CortexType::number(false)),
                 ],
                 CortexType::void(false),
-                Body::Native(Box::new(move |env| {
+                Body::Native(Box::new(move |env, _heap| {
                     let song_id = env.get_value("song_id")?;
                     let device_type = env.get_value("device_type")?;
                     if let CortexValue::String(string) = song_id {
                         if let CortexValue::Number(typ) = device_type {
-                            block_on(sp6.borrow().queue_song(string.clone(), *typ as u8))?;
+                            block_on(sp6.borrow().queue_song(string.clone(), typ as u8))?;
                         }
                     }
                     Ok(CortexValue::Void)
-                }))
+                })),
+                vec![]
             )
         )?;
-
-        let module = Module::new(mod_env);
         Ok(module)
     }
 
     async fn build_voice_module(deepgram: Rc<RefCell<DeepgramClient>>) -> Result<Module, Box<dyn Error>> {
-        let mut mod_env = Environment::base();
+        let mut module = Module::new();
         let dg1 = deepgram.clone();
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("speak")),
                 vec![Parameter::named("text", CortexType::string(false))],
                 CortexType::void(false), 
-                Body::Native(Box::new(move |env| {
+                Body::Native(Box::new(move |env, _heap| {
                     let text = env.get_value("text")?;
                     if let CortexValue::String(string) = text {
-                        block_on(dg1.borrow().speak(string))?;
+                        block_on(dg1.borrow().speak(&string))?;
                     }
                     Ok(CortexValue::Void)
-                }))
-            )
+                })),
+                vec![]
+            ),
         )?;
-        let module = Module::new(mod_env);
         Ok(module)
     }
     fn build_weather_module() -> Result<Module, Box<dyn Error>> {
-        let mut mod_env = Environment::base();
-        mod_env.add_struct(Struct::new(
+        let mut module = Module::new();
+        module.add_struct(Struct::new(
             "Volume",
             vec![
                 ("lastHour", CortexType::number(true)),
                 ("last3Hours", CortexType::number(true)),
             ],
+            vec![]
         ))?;
-        mod_env.add_struct(Struct::new(
+        module.add_struct(Struct::new(
             "Report", 
             vec![
                 ("temp", CortexType::number(false)),
@@ -373,23 +371,24 @@ impl CommandRunner {
                 ("windGust", CortexType::number(true)),
                 ("feelsLike", CortexType::number(false)),
                 ("humidity", CortexType::number(false)),
-                ("rain", CortexType::new(PathIdent::new(vec!["Weather", "Volume"]), true)),
-                ("snow", CortexType::new(PathIdent::new(vec!["Weather", "Volume"]), true)),
+                ("rain", CortexType::basic(PathIdent::new(vec!["Weather", "Volume"]), true, vec![])),
+                ("snow", CortexType::basic(PathIdent::new(vec!["Weather", "Volume"]), true, vec![])),
             ],
+            vec![]
         ))?;
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("get")),
                 vec![
                     Parameter::named("latitude", CortexType::number(false)),
                     Parameter::named("longitude", CortexType::number(false)),
                 ],
-                CortexType::new(PathIdent::new(vec!["Weather", "Report"]), true), 
-                Body::Native(Box::new(move |env| {
+                CortexType::basic(PathIdent::new(vec!["Report"]), true, vec![]), 
+                Body::Native(Box::new(move |env, _heap| {
                     let lat = env.get_value("latitude")?;
                     let long = env.get_value("longitude")?;
-                    let latitude = unwrap_enum!(lat, CortexValue::Number(v) => *v);
-                    let longitude = unwrap_enum!(long, CortexValue::Number(v) => *v);
+                    let latitude = unwrap_enum!(lat, CortexValue::Number(v) => v);
+                    let longitude = unwrap_enum!(long, CortexValue::Number(v) => v);
                     let weather = &openweathermap::blocking::weather(
                         format!("{},{}", latitude, longitude).as_str(), 
                         "imperial", 
@@ -400,94 +399,86 @@ impl CommandRunner {
                         Ok(current) => {                            
                             fn volume_to_struct(volume: &Option<Volume>) -> CortexValue {
                                 match volume {
-                                    Some(v) => CortexValue::Composite { 
-                                        struct_name: PathIdent::new(vec!["Weather", "Volume"]), 
-                                        field_values: HashMap::from([
-                                            (String::from("lastHour"), match v.h1 {
-                                                Some(h) => CortexValue::Number(h),
-                                                None => CortexValue::Null,
-                                            }),
-                                            (String::from("last3Hour"), match v.h3 {
-                                                Some(h) => CortexValue::Number(h),
-                                                None => CortexValue::Null,
-                                            }),
-                                        ]),
-                                    },
-                                    None => CortexValue::Null,
+                                    Some(v) => CortexValue::new_composite(vec![
+                                        ("lastHour", match v.h1 {
+                                            Some(h) => CortexValue::Number(h),
+                                            None => CortexValue::None,
+                                        }),
+                                        ("last3Hour", match v.h3 {
+                                            Some(h) => CortexValue::Number(h),
+                                            None => CortexValue::None,
+                                        }),
+                                    ]),
+                                    None => CortexValue::None,
                                 }
                             }
 
                             let rain = volume_to_struct(&current.rain);
                             let snow = volume_to_struct(&current.snow);
-                            CortexValue::Composite { 
-                                struct_name: PathIdent::new(vec!["Weather", "Report"]),
-                                field_values: HashMap::from([
-                                    (String::from("temp"), CortexValue::Number(current.main.temp)),
-                                    (String::from("windSpeed"), CortexValue::Number(current.wind.speed)),
-                                    (String::from("windDirection"), CortexValue::Number(current.wind.deg)),
-                                    (String::from("windGust"), match current.wind.gust {
-                                        Some(g) => CortexValue::Number(g),
-                                        None => CortexValue::Null,
-                                    }),
-                                    (String::from("feelsLike"), CortexValue::Number(current.main.feels_like)),
-                                    (String::from("humidity"), CortexValue::Number(current.main.humidity)),
-                                    (String::from("rain"), rain),
-                                    (String::from("snow"), snow),
-                                ]),
-                            }
+                            CortexValue::new_composite(vec![
+                                ("temp", CortexValue::Number(current.main.temp)),
+                                ("windSpeed", CortexValue::Number(current.wind.speed)),
+                                ("windDirection", CortexValue::Number(current.wind.deg)),
+                                ("windGust", match current.wind.gust {
+                                    Some(g) => CortexValue::Number(g),
+                                    None => CortexValue::None,
+                                }),
+                                ("feelsLike", CortexValue::Number(current.main.feels_like)),
+                                ("humidity", CortexValue::Number(current.main.humidity)),
+                                ("rain", rain),
+                                ("snow", snow),
+                            ])
                         },
                         Err(e) => {
                             println!("Could not fetch weather because: {}", e);
-                            CortexValue::Null
+                            CortexValue::None
                         },
                     };
                     Ok(val)
-                }))
-            )
+                })),
+                vec![]
+            ),
         )?;
-        let module = Module::new(mod_env);
         Ok(module)
     }
 
     fn build_location_module() -> Result<Module, Box<dyn Error>> {
-        let mut mod_env = Environment::base();
-        mod_env.add_struct(Struct::new(
+        let mut module = Module::new();
+        module.add_struct(Struct::new(
             "Location", 
             vec![
                 ("long", CortexType::number(false)),
                 ("lat", CortexType::number(false)),
                 ("name", CortexType::string(false)),
-            ]
+            ],
+            vec![]
         ))?;
-        mod_env.add_function(
-            Function::new(
+        module.add_function(
+            PFunction::new(
                 OptionalIdentifier::Ident(String::from("get")),
                 vec![],
-                CortexType::new(PathIdent::new(vec!["Location", "Location"]), false),
-                Body::Native(Box::new(move |_env| {
+                CortexType::basic(PathIdent::new(vec!["Location"]), false, vec![]),
+                Body::Native(Box::new(move |_env, _heap| {
                     let loc = block_on(location::get_loc())?;
-                    Ok(CortexValue::Composite { 
-                        struct_name: PathIdent::new(vec!["Location", "Location"]), 
-                        field_values: HashMap::from([
-                            (String::from("long"), CortexValue::Number(loc.long)),
-                            (String::from("lat"), CortexValue::Number(loc.lat)),
-                            (String::from("name"), CortexValue::String(loc.city)),
-                        ]),
-                    })
-                }))
+                    Ok(CortexValue::new_composite(vec![
+                        ("long", CortexValue::Number(loc.long)),
+                        ("lat", CortexValue::Number(loc.lat)),
+                        ("name", CortexValue::String(loc.city)),
+                    ]))
+                })),
+                vec![]
             )
         )?;
-        let module = Module::new(mod_env);
         Ok(module)
     }
 
     fn build_util_module() -> Result<Module, Box<dyn Error>> {
-        let mut mod_env = Environment::base();
-        mod_env.add_function(Function::new(
+        let mut module = Module::new();
+        module.add_function(PFunction::new(
             OptionalIdentifier::Ident(String::from("n2s")), 
             vec![Parameter::named("numberInput", CortexType::number(false))],
             CortexType::string(false), 
-            Body::Native(Box::new(|env| {
+            Body::Native(Box::new(|env, _heap| {
                 let num = env.get_value("numberInput")?;
                 let val = match num {
                     CortexValue::Number(n) => CortexValue::String(format!("{}", n)),
@@ -495,18 +486,18 @@ impl CommandRunner {
                 };
                 Ok(val)
             })),
+            vec![],
         ))?;
-        let module = Module::new(mod_env);
         Ok(module)
     }
 
     fn build_math_module() -> Result<Module, Box<dyn Error>> {
-        let mut mod_env = Environment::base();
-        mod_env.add_function(Function::new(
+        let mut module = Module::new();
+        module.add_function(PFunction::new(
             OptionalIdentifier::Ident(String::from("floor")), 
             vec![Parameter::named("numberInput", CortexType::number(false))],
             CortexType::number(false), 
-            Body::Native(Box::new(|env| {
+            Body::Native(Box::new(|env, _heap| {
                 let num = env.get_value("numberInput")?;
                 let val = match num {
                     CortexValue::Number(n) => CortexValue::Number(n.floor()),
@@ -514,8 +505,8 @@ impl CommandRunner {
                 };
                 Ok(val)
             })),
+            vec![]
         ))?;
-        let module = Module::new(mod_env);
         Ok(module)
     }
 

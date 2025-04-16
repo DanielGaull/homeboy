@@ -1,6 +1,6 @@
-use std::{error::Error, fs::File, io::{BufRead, BufReader}, rc::Rc};
+use std::{error::Error, fs::File, io::{BufRead, BufReader}};
 
-use cortex_lang::parsing::{ast::top_level::Function, parser::CortexParser};
+use cortex_lang::{interpreting::interpreter::CortexInterpreter, parsing::parser::CortexParser, preprocessing::ast::function::RFunction};
 use thiserror::Error;
 
 use super::{matcher::{Match, TemplateMatcher}, parser::TemplateParser, template::Template};
@@ -16,7 +16,7 @@ pub enum TemplateHandlerError {
 pub struct TemplateHandler {
     matcher: TemplateMatcher,
     templates: Vec<TemplateEntry>,
-    fallback: Option<Rc<Function>>,
+    fallback: Option<RFunction>,
 }
 
 impl TemplateHandler {
@@ -42,21 +42,21 @@ impl TemplateHandler {
         Ok(None)
     }
 
-    pub fn get_fallback(&self) -> Result<Option<Rc<Function>>, Box<dyn Error>> {
-        Ok(self.fallback.clone())
+    pub fn get_fallback(&self) -> Result<Option<&RFunction>, Box<dyn Error>> {
+        Ok(self.fallback.as_ref())
     }
 
-    pub fn load_from_file(&mut self, filepath: &str) -> Result<(), Box<dyn Error>> {
+    pub fn load_from_file(&mut self, filepath: &str, interpreter: &mut CortexInterpreter) -> Result<(), Box<dyn Error>> {
         let file = File::open(filepath)?;
         let reader = BufReader::new(file);
         let mut lines = reader.lines().peekable();
         while let Some(_) = lines.peek() {
-            self.load_next_thing(&mut lines)?;
+            self.load_next_thing(&mut lines, interpreter)?;
         }
         Ok(())
     }
 
-    fn load_next_thing(&mut self, iter: &mut dyn Iterator<Item = Result<String, std::io::Error>>) -> Result<(), Box<dyn Error>> {
+    fn load_next_thing(&mut self, iter: &mut dyn Iterator<Item = Result<String, std::io::Error>>, interpreter: &mut CortexInterpreter) -> Result<(), Box<dyn Error>> {
         loop {
             let mut line = iter.next().ok_or(TemplateHandlerError::UnexpectedEof("loading next element"))??;
             if line.trim().is_empty() {
@@ -75,9 +75,10 @@ impl TemplateHandler {
                 let function_string = function_lines.into_iter().skip(1).collect::<Vec<_>>().join("\n");
                 let template = TemplateParser::parse_template(&template_line)?;
                 let function = CortexParser::parse_function(&function_string)?;
+                let processed_function = interpreter.preprocess_function(function)?;
                 let entry = TemplateEntry {
                     template: template,
-                    function: Rc::new(function),
+                    function: processed_function,
                 };
                 self.templates.push(entry);
                 break;
@@ -102,7 +103,8 @@ impl TemplateHandler {
                 }
                 let function_string = function_lines.into_iter().skip(1).collect::<Vec<_>>().join("\n");
                 let function = CortexParser::parse_function(&function_string)?;
-                self.fallback = Some(Rc::new(function));
+                let processed_function = interpreter.preprocess_function(function)?;
+                self.fallback = Some(processed_function);
                 break;
             } else {
                 return Err(Box::new(TemplateHandlerError::IllegalLine(line)));
@@ -114,10 +116,10 @@ impl TemplateHandler {
 
 struct TemplateEntry {
     template: Template,
-    function: Rc<Function>,
+    function: RFunction,
 }
 
 pub struct MatchResult<'a> {
-    pub function: &'a Rc<Function>,
+    pub function: &'a RFunction,
     pub match_inst: Match,
 }
