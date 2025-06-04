@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::templating::handler::TemplateHandler;
 
-use super::{location, memory::memory::{Memory, MemoryValue}, spotify::spotify::Spotify, voice::{deepgram::{DeepgramClient, OutputMode}, record::Recorder}};
+use super::{location, memory::memory::{Memory, MemoryValue}, search::search::WebSummarizer, spotify::spotify::Spotify, voice::{deepgram::{DeepgramClient, OutputMode}, record::Recorder}};
 
 macro_rules! unwrap_enum {
     ($e:expr, $p:pat => $v:expr) => {
@@ -36,6 +36,7 @@ pub struct CommandRunner {
     spotify: Option<Rc<RefCell<Spotify>>>,
     deepgram: Option<Rc<RefCell<DeepgramClient>>>,
     memory: Option<Rc<RefCell<Memory>>>,
+    search: Option<Rc<RefCell<WebSummarizer>>>,
 
     recorder: Option<Rc<RefCell<Recorder>>>,
     f8_down: bool,
@@ -52,6 +53,7 @@ impl CommandRunner {
                 spotify: None,
                 deepgram: None,
                 memory: None,
+                search: None,
 
                 recorder: None,
                 f8_down: false,
@@ -64,6 +66,7 @@ impl CommandRunner {
         self.spotify = Some(Rc::new(RefCell::new(Spotify::new())));
         self.deepgram = Some(Rc::new(RefCell::new(DeepgramClient::init(output_mode)?)));
         self.memory = Some(Rc::new(RefCell::new(Memory::load(env::var("memory_path")?)?)));
+        self.search = Some(Rc::new(RefCell::new(WebSummarizer::new()?)));
 
         self.recorder = Some(Rc::new(RefCell::new(Recorder::new())));
         self.register_modules()?;
@@ -198,6 +201,9 @@ impl CommandRunner {
 
         let memory_module = Self::build_memory_module(self.memory.clone().unwrap())?;
         self.interpreter.register_module(&PathIdent::simple(String::from("Memory")), memory_module)?;
+
+        let search_module = Self::build_search_module(self.search.clone().unwrap())?;
+        self.interpreter.register_module(&PathIdent::simple(String::from("Search")), search_module)?;
 
         Ok(())
     }
@@ -581,6 +587,27 @@ impl CommandRunner {
                     Ok(CortexValue::Void)
                 })),
                 vec![String::from("T")],
+            )
+        )?;
+
+        Ok(module)
+    }
+
+    fn build_search_module(search: Rc<RefCell<WebSummarizer>>) -> Result<Module, Box<dyn Error>> {
+        let mut module = Module::new();
+        let s1 = search.clone();
+        module.add_function(
+            PFunction::new(
+                OptionalIdentifier::Ident(String::from("search")),
+                vec![Parameter::named("query", CortexType::string(false))],
+                CortexType::string(false),
+                Body::Native(Box::new(move |env, _heap| {
+                    let query_var = env.get_value("query")?;
+                    let query = unwrap_enum!(query_var, CortexValue::String(v) => v);
+                    let result = block_on(s1.borrow().summarize_topic(&query))?;
+                    Ok(CortexValue::String(result))
+                })),
+                vec![]
             )
         )?;
 
