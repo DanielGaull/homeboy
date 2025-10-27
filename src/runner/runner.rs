@@ -1,5 +1,5 @@
 use std::{cell::RefCell, env, error::Error, path::Path, rc::Rc};
-use cortex_lang::{interpreting::{interpreter::CortexInterpreter, value::CortexValue}, parsing::ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, PFunction, Struct}, r#type::CortexType}, preprocessing::module::Module};
+use cortex_lang::{interpreting::{interpreter::CortexInterpreter, value::CortexValue}, parsing::ast::{expression::{OptionalIdentifier, Parameter, PathIdent}, top_level::{Body, PFunction, Struct}, r#type::{CortexType, TypeParam}}, preprocessing::module::Module};
 use futures::executor::block_on;
 
 use openweathermap::Volume;
@@ -212,8 +212,8 @@ impl CommandRunner {
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("print")),
-                vec![Parameter::named("text", CortexType::string(false))],
-                CortexType::void(false), 
+                vec![Parameter::named("text", CortexType::string())],
+                CortexType::void(), 
                 Body::Native(Box::new(|env, _heap| {
                     let text = env.get_value("text")?;
                     if let CortexValue::String(string) = text {
@@ -232,19 +232,21 @@ impl CommandRunner {
             Struct::new(
                 "Song", 
                 vec![
-                    ("id", CortexType::string(false)),
-                    ("name", CortexType::string(false)),
-                    ("artist", CortexType::string(false)),
+                    ("id", CortexType::string()),
+                    ("name", CortexType::string()),
+                    ("artist", CortexType::string()),
                 ],
                 vec![],
+                vec![],
+                None
             )
         )?;
         let sp1 = spotify.clone();
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("search")),
-                vec![Parameter::named("query", CortexType::string(false))],
-                CortexType::basic(PathIdent::new(vec!["Song"]), true, vec![]),
+                vec![Parameter::named("query", CortexType::string())],
+                CortexType::basic(PathIdent::new(vec!["Song"]), vec![]),
                 Body::Native(Box::new(move |env, _heap| {
                     let query = env.get_value("query")?;
                     if let CortexValue::String(string) = query {
@@ -270,10 +272,10 @@ impl CommandRunner {
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("play")),
                 vec![
-                    Parameter::named("song_id", CortexType::string(false)),
-                    Parameter::named("device_type", CortexType::number(false)),
+                    Parameter::named("song_id", CortexType::string()),
+                    Parameter::named("device_type", CortexType::number()),
                 ],
-                CortexType::void(false),
+                CortexType::void(),
                 Body::Native(Box::new(move |env, _heap| {
                     let song_id = env.get_value("song_id")?;
                     let device_type = env.get_value("device_type")?;
@@ -292,7 +294,7 @@ impl CommandRunner {
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("pause")),
                 vec![],
-                CortexType::void(false),
+                CortexType::void(),
                 Body::Native(Box::new(move |_env, _heap| {
                     block_on(sp3.borrow().pause())?;
                     Ok(CortexValue::Void)
@@ -305,7 +307,7 @@ impl CommandRunner {
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("resume")),
                 vec![],
-                CortexType::void(false),
+                CortexType::void(),
                 Body::Native(Box::new(move |_env, _heap| {
                     block_on(sp4.borrow().resume())?;
                     Ok(CortexValue::Void)
@@ -317,7 +319,7 @@ impl CommandRunner {
         module.add_function(PFunction::new(
             OptionalIdentifier::Ident(String::from("skip")),
             vec![],
-            CortexType::void(false),
+            CortexType::void(),
             Body::Native(Box::new(move |_env, _heap| {
                 block_on(sp5.borrow().skip())?;
                 Ok(CortexValue::Void)
@@ -329,10 +331,10 @@ impl CommandRunner {
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("queue")),
                 vec![
-                    Parameter::named("song_id", CortexType::string(false)),
-                    Parameter::named("device_type", CortexType::number(false)),
+                    Parameter::named("song_id", CortexType::string()),
+                    Parameter::named("device_type", CortexType::number()),
                 ],
-                CortexType::void(false),
+                CortexType::void(),
                 Body::Native(Box::new(move |env, _heap| {
                     let song_id = env.get_value("song_id")?;
                     let device_type = env.get_value("device_type")?;
@@ -355,8 +357,8 @@ impl CommandRunner {
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("speak")),
-                vec![Parameter::named("text", CortexType::string(false))],
-                CortexType::void(false), 
+                vec![Parameter::named("text", CortexType::string())],
+                CortexType::void(), 
                 Body::Native(Box::new(move |env, _heap| {
                     let text = env.get_value("text")?;
                     if let CortexValue::String(string) = text {
@@ -374,33 +376,37 @@ impl CommandRunner {
         module.add_struct(Struct::new(
             "Volume",
             vec![
-                ("lastHour", CortexType::number(true)),
-                ("last3Hours", CortexType::number(true)),
+                ("lastHour", CortexType::number()),
+                ("last3Hours", CortexType::number()),
             ],
-            vec![]
+            vec![],
+            vec![],
+            None
         ))?;
         module.add_struct(Struct::new(
             "Report", 
             vec![
-                ("temp", CortexType::number(false)),
-                ("windSpeed", CortexType::number(false)),
-                ("windDirection", CortexType::number(false)),
-                ("windGust", CortexType::number(true)),
-                ("feelsLike", CortexType::number(false)),
-                ("humidity", CortexType::number(false)),
-                ("rain", CortexType::basic(PathIdent::new(vec!["Volume"]), true, vec![])),
-                ("snow", CortexType::basic(PathIdent::new(vec!["Volume"]), true, vec![])),
+                ("temp", CortexType::number()),
+                ("windSpeed", CortexType::number()),
+                ("windDirection", CortexType::number()),
+                ("windGust", CortexType::number()),
+                ("feelsLike", CortexType::number()),
+                ("humidity", CortexType::number()),
+                ("rain", CortexType::basic(PathIdent::new(vec!["Volume"]), vec![])),
+                ("snow", CortexType::basic(PathIdent::new(vec!["Volume"]), vec![])),
             ],
-            vec![]
+            vec![],
+            vec![],
+            None
         ))?;
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("get")),
                 vec![
-                    Parameter::named("latitude", CortexType::number(false)),
-                    Parameter::named("longitude", CortexType::number(false)),
+                    Parameter::named("latitude", CortexType::number()),
+                    Parameter::named("longitude", CortexType::number()),
                 ],
-                CortexType::basic(PathIdent::new(vec!["Report"]), true, vec![]), 
+                CortexType::basic(PathIdent::new(vec!["Report"]), vec![]), 
                 Body::Native(Box::new(move |env, _heap| {
                     let lat = env.get_value("latitude")?;
                     let long = env.get_value("longitude")?;
@@ -464,17 +470,19 @@ impl CommandRunner {
         module.add_struct(Struct::new(
             "Location", 
             vec![
-                ("long", CortexType::number(false)),
-                ("lat", CortexType::number(false)),
-                ("name", CortexType::string(false)),
+                ("long", CortexType::number()),
+                ("lat", CortexType::number()),
+                ("name", CortexType::string()),
             ],
-            vec![]
+            vec![],
+            vec![],
+            None
         ))?;
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("get")),
                 vec![],
-                CortexType::basic(PathIdent::new(vec!["Location"]), false, vec![]),
+                CortexType::basic(PathIdent::new(vec!["Location"]), vec![]),
                 Body::Native(Box::new(move |_env, _heap| {
                     let loc = block_on(location::get_loc())?;
                     Ok(CortexValue::new_composite(vec![
@@ -493,8 +501,8 @@ impl CommandRunner {
         let mut module = Module::new();
         module.add_function(PFunction::new(
             OptionalIdentifier::Ident(String::from("floor")), 
-            vec![Parameter::named("numberInput", CortexType::number(false))],
-            CortexType::number(false), 
+            vec![Parameter::named("numberInput", CortexType::number())],
+            CortexType::number(), 
             Body::Native(Box::new(|env, _heap| {
                 let num = env.get_value("numberInput")?;
                 let val = match num {
@@ -514,8 +522,8 @@ impl CommandRunner {
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("get")),
-                vec![Parameter::named("key", CortexType::string(false))],
-                CortexType::string(true),
+                vec![Parameter::named("key", CortexType::string())],
+                CortexType::string(),
                 Body::Native(Box::new(move |env, _heap| {
                     let key = env.get_value("key")?;
                     let key = unwrap_enum!(key, CortexValue::String(v) => v);
@@ -537,8 +545,8 @@ impl CommandRunner {
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("getl")),
-                vec![Parameter::named("key", CortexType::string(false))],
-                CortexType::reference(CortexType::list(CortexType::string(false), true), true),
+                vec![Parameter::named("key", CortexType::string())],
+                CortexType::reference(CortexType::list(CortexType::string()), true),
                 Body::Native(Box::new(move |env, heap| {
                     let key = env.get_value("key")?;
                     let key = unwrap_enum!(key, CortexValue::String(v) => v);
@@ -563,10 +571,10 @@ impl CommandRunner {
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("set")),
                 vec![
-                    Parameter::named("key", CortexType::string(false)),
-                    Parameter::named("value", CortexType::simple("T", false))
+                    Parameter::named("key", CortexType::string()),
+                    Parameter::named("value", CortexType::generic("T"))
                 ],
-                CortexType::void(false),
+                CortexType::void(),
                 Body::Native(Box::new(move |env, heap| {
                     let key = env.get_value("key")?;
                     let key = unwrap_enum!(key, CortexValue::String(v) => v);
@@ -586,7 +594,7 @@ impl CommandRunner {
                     
                     Ok(CortexValue::Void)
                 })),
-                vec![String::from("T")],
+                vec![TypeParam::ty("T")],
             )
         )?;
 
@@ -599,8 +607,8 @@ impl CommandRunner {
         module.add_function(
             PFunction::new(
                 OptionalIdentifier::Ident(String::from("search")),
-                vec![Parameter::named("query", CortexType::string(false))],
-                CortexType::string(false),
+                vec![Parameter::named("query", CortexType::string())],
+                CortexType::string(),
                 Body::Native(Box::new(move |env, _heap| {
                     let query_var = env.get_value("query")?;
                     let query = unwrap_enum!(query_var, CortexValue::String(v) => v);
@@ -626,5 +634,6 @@ fn to_string(value: &CortexValue) -> String {
         CortexValue::Composite { field_values: _ } => String::from("<composite>"),
         CortexValue::Reference(_) => String::from("<ref>"),
         CortexValue::List(_) => String::from("<list>"),
+        CortexValue::Fat(ref_cell, _vtable) => to_string(&*ref_cell.borrow()),
     }
 }
